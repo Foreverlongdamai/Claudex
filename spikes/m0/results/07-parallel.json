@@ -1,0 +1,58 @@
+{
+  "name": "07-parallel",
+  "at": "2026-11-10T02:32:35.196Z",
+  "checks": [
+    {
+      "label": "3 个会话都成功",
+      "ok": true,
+      "detail": [
+        "success",
+        "success",
+        "success"
+      ]
+    },
+    {
+      "label": "主目录只多了自己的一行",
+      "ok": true,
+      "detail": [
+        "base",
+        "main-line"
+      ]
+    },
+    {
+      "label": "worktree 1 只多了自己的一行",
+      "ok": true,
+      "detail": [
+        "base",
+        "task-1-line"
+      ]
+    },
+    {
+      "label": "worktree 2 只多了自己的一行",
+      "ok": true,
+      "detail": [
+        "base",
+        "task-2-line"
+      ]
+    },
+    {
+      "label": "worktree 会话的工作目录是 worktree 本身",
+      "ok": true,
+      "detail": "D:\\claude_code_lm\\spikes\\m0\\sandbox\\parallel\\wt1"
+    }
+  ],
+  "notes": {
+    "并行总耗时 ms": 15615,
+    "各会话单独耗时 ms": [
+      15510,
+      15186,
+      15600
+    ],
+    "并行时 claude.exe 内存峰值": {
+      "进程数": 3,
+      "合计MB": 743,
+      "平均每个MB": 248
+    },
+    "合计花费 USD（按官方价估算）": 0.0103
+  }
+}

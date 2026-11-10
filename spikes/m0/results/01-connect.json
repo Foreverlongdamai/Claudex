@@ -1,0 +1,135 @@
+{
+  "name": "01-connect",
+  "at": "2026-11-10T02:21:53.249Z",
+  "checks": [
+    {
+      "label": "经中转 API 拿到回复",
+      "ok": true,
+      "detail": "pong"
+    },
+    {
+      "label": "显式传 default 时会话是默认模式（不受全局 bypass 影响）",
+      "ok": true,
+      "detail": "default"
+    },
+    {
+      "label": "可以改用本机已装的 Claude Code",
+      "ok": true,
+      "detail": "2.1.319"
+    }
+  ],
+  "notes": {
+    "SDK 内置 Claude Code 版本": "2.1.321",
+    "实际模型": "claude-haiku-5-5",
+    "凭据来源 apiKeySource": "none",
+    "内置工具": [
+      "Task",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "DesignSync",
+      "Edit",
+      "EnterWorktree",
+      "ExitWorktree",
+      "Glob",
+      "Grep",
+      "ListAgents",
+      "NotebookEdit",
+      "PowerShell",
+      "PushNotification",
+      "Read",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "TaskStop",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ],
+    "Skills 数": 191,
+    "斜杠命令数": 237,
+    "插件": [
+      "document-skills",
+      "example-skills",
+      "claude-api",
+      "fullstack-dev-skills",
+      "cc-plugin-agents-md",
+      "cc-plugin-telemetry",
+      "cc-plugin-privacy",
+      "cc-plugin-plugin-authoring"
+    ],
+    "插件加载错误": [],
+    "MCP 服务器": [
+      {
+        "name": "codex",
+        "status": "connected",
+        "source": "user"
+      }
+    ],
+    "快速模式状态": {
+      "state": "off",
+      "reason": "sdk_opt_in_required"
+    },
+    "思考强度 effort": "(未提供)",
+    "capabilities": [
+      "interrupt_receipt_v1",
+      "interrupt_cancel_queued_v1",
+      "interrupt_send_now_v1",
+      "interrupt_requeue_taken_v1",
+      "msg_lifecycle_v1",
+      "request_marker_lists_v1",
+      "ask_user_question_unanswered_v1",
+      "lifecycle_wakeup_source_v1",
+      "sdk_mcp_tools_list_changed",
+      "sdk_mcp_manifests",
+      "mcp_read_resource_v1",
+      "mcp_tool_ui_meta_v1",
+      "ui_surface_v1",
+      "mcp_call_result_not_for_model_v1",
+      "mcp_call_check_permissions_v1"
+    ],
+    "启动到收到 init 的耗时 ms": 1016,
+    "总耗时 ms": 3961,
+    "首字耗时 ttft_ms": 1942,
+    "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 27643,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 4,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 27643
+      },
+      "inference_geo": "global",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 4,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 27643,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 27643,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "不传 permissionMode 时的会话模式": "bypassPermissions",
+    "已装 Claude Code：启动到 init 耗时 ms": 767,
+    "合计花费 USD（按官方价估算）": 0.0072
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "lumen-m0-spikes",
+  "private": true,
+  "type": "module",
+  "description": "M0 技术验证脚本：确认 Claude Agent SDK 在本机 + 中转 API 下的关键能力",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.321",
+    "zod": "^4.6.7"
+  }
+}

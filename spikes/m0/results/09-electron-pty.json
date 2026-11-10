@@ -1,0 +1,52 @@
+{
+  "name": "09-electron-pty",
+  "at": "2026-11-10T02:47:04.857Z",
+  "checks": [
+    {
+      "label": "node-pty 在 Electron 里开 PowerShell 终端",
+      "ok": true,
+      "detail": {
+        "ms": 1623
+      }
+    },
+    {
+      "label": "PowerShell 终端能正常退出（不用强杀）",
+      "ok": true,
+      "detail": {
+        "exitMs": 1545
+      }
+    },
+    {
+      "label": "node-pty 在 Electron 里开 Git Bash 终端",
+      "ok": true,
+      "detail": {
+        "ms": 1728
+      }
+    },
+    {
+      "label": "Git Bash 终端能正常退出（不用强杀）",
+      "ok": true,
+      "detail": {
+        "exitMs": 1627
+      }
+    },
+    {
+      "label": "Claude Agent SDK 能在 Electron 主进程里用",
+      "ok": true,
+      "detail": [
+        "default",
+        "opus",
+        "claude-fable-5-1[1m]",
+        "sonnet",
+        "haiku"
+      ]
+    }
+  ],
+  "notes": {
+    "版本": {
+      "electron": "45.2.3",
+      "node": "24.22.2",
+      "abi": "150"
+    }
+  }
+}

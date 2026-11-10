@@ -1,0 +1,30 @@
+{
+  "name": "02-gitbash",
+  "at": "2026-11-10T02:24:16.909Z",
+  "checks": [
+    {
+      "label": "调用了 Bash 工具",
+      "ok": true,
+      "detail": [
+        "Bash"
+      ]
+    },
+    {
+      "label": "Bash 是 Git Bash（MINGW/MSYS）",
+      "ok": true,
+      "detail": "BASH=5.2.37(1)-release\nMINGW64_NT-10.0-26200\nBASHPATH=/usr/bin/bash"
+    },
+    {
+      "label": "没有用到 WSL 的 bash",
+      "ok": true,
+      "detail": "BASH=5.2.37(1)-release\nMINGW64_NT-10.0-26200\nBASHPATH=/usr/bin/bash"
+    }
+  ],
+  "notes": {
+    "权限回调收到的工具": [
+      "Bash"
+    ],
+    "内置工具里有没有 PowerShell": true,
+    "合计花费 USD（按官方价估算）": 0.0045
+  }
+}

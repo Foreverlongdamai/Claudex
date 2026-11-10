@@ -1,0 +1,56 @@
+{
+  "name": "06b-skills-mcp-recheck",
+  "at": "2026-11-10T02:30:57.340Z",
+  "checks": [
+    {
+      "label": "skills 选项让系统提示明显变小",
+      "ok": false,
+      "detail": {
+        "all": 29394,
+        "two": 24647
+      }
+    },
+    {
+      "label": "skills 选项下 Claude 只看得到指定的 Skills",
+      "ok": true,
+      "detail": [
+        "arxiv",
+        "research-lit"
+      ]
+    },
+    {
+      "label": "批准后项目 MCP 最终能连上",
+      "ok": true,
+      "detail": [
+        "pending",
+        "connected"
+      ]
+    }
+  ],
+  "notes": {
+    "系统提示大小（token）": {
+      "不限定": 29394,
+      "只开两个": 24647
+    },
+    "只开两个时 Claude 说它能用的 Skills": [
+      "arxiv",
+      "research-lit"
+    ],
+    "没批准：状态变化": [
+      "pending",
+      "connected"
+    ],
+    "批准后：状态变化": [
+      "pending",
+      "connected"
+    ],
+    "没批准时 Claude 能不能调用": {
+      "tools": [
+        "ToolSearch",
+        "mcp__lumen-echo__echo"
+      ],
+      "results": " | echo: no-approval"
+    },
+    "合计花费 USD（按官方价估算）": 0.0081
+  }
+}

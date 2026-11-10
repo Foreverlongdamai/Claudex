@@ -1,0 +1,152 @@
+{
+  "name": "05-models",
+  "at": "2026-11-10T02:25:27.482Z",
+  "checks": [
+    {
+      "label": "中转支持 claude-opus-5-5",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "label": "中转支持 claude-sonnet-5-5",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "label": "中转支持 claude-haiku-5-5",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "label": "中转支持 claude-fable-5-1",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "label": "思考强度 low（claude-opus-5-5）请求成功",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "label": "思考强度 max（claude-haiku-5-5）请求成功",
+      "ok": true,
+      "detail": "ok"
+    }
+  ],
+  "notes": {
+    "supportedModels": [
+      {
+        "value": "default",
+        "resolved": "claude-opus-5-5",
+        "name": "Default (recommended)",
+        "effort": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "fast": true,
+        "auto": true
+      },
+      {
+        "value": "opus",
+        "resolved": "claude-opus-5-5",
+        "name": "Opus",
+        "effort": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "fast": true,
+        "auto": true
+      },
+      {
+        "value": "claude-fable-5-1[1m]",
+        "resolved": "claude-fable-5-1",
+        "name": "Fable",
+        "effort": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "auto": true
+      },
+      {
+        "value": "sonnet",
+        "resolved": "claude-sonnet-5-5",
+        "name": "Sonnet",
+        "effort": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "auto": true
+      },
+      {
+        "value": "haiku",
+        "resolved": "claude-haiku-5-5",
+        "name": "Haiku",
+        "effort": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "auto": true
+      }
+    ],
+    "claude-opus-5-5 详情": {
+      "usedModels": [
+        "claude-opus-5-5"
+      ],
+      "elapsedMs": 4265,
+      "ttftMs": 3236,
+      "costUsd": 0.002923
+    },
+    "claude-sonnet-5-5 详情": {
+      "usedModels": [
+        "claude-sonnet-5-5"
+      ],
+      "elapsedMs": 3840,
+      "ttftMs": 2821,
+      "costUsd": 0.0039794999999999995
+    },
+    "claude-haiku-5-5 详情": {
+      "usedModels": [
+        "claude-haiku-5-5"
+      ],
+      "elapsedMs": 2762,
+      "ttftMs": 1381,
+      "costUsd": 0.0002011
+    },
+    "claude-fable-5-1 详情": {
+      "usedModels": [
+        "claude-fable-5-1"
+      ],
+      "elapsedMs": 2772,
+      "ttftMs": 1758,
+      "costUsd": 0.007595
+    },
+    "思考强度 low（claude-opus-5-5）init.effort": "(未提供)",
+    "思考强度 max（claude-haiku-5-5）init.effort": "(未提供)",
+    "快速模式：init 里的状态": {
+      "state": "off",
+      "reason": "preference"
+    },
+    "快速模式：请求结果": {
+      "ok": true,
+      "result": "ok",
+      "speed": "standard",
+      "costUsd": 0.0052174
+    },
+    "合计花费 USD（按官方价估算）": 0.0231
+  }
+}

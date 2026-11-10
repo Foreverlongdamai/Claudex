@@ -1,0 +1,30 @@
+{
+  "name": "05b-fast",
+  "at": "2026-11-10T02:27:16.298Z",
+  "checks": [
+    {
+      "label": "快速模式实际生效（usage.speed = fast）",
+      "ok": false,
+      "detail": {
+        "t1": "standard",
+        "t2": "standard"
+      }
+    }
+  ],
+  "notes": {
+    "启动时带 fastMode 设置：init 状态": {
+      "state": "off",
+      "reason": "preference",
+      "speed": "standard"
+    },
+    "中途 applyFlagSettings 后": {
+      "state": "off",
+      "reason": "preference",
+      "speed": "standard"
+    },
+    "其他提到 fast 的系统消息": [
+      "init"
+    ],
+    "合计花费 USD（按官方价估算）": 0.3637
+  }
+}

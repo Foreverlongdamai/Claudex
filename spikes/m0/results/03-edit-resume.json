@@ -1,0 +1,80 @@
+{
+  "name": "03-edit-resume",
+  "at": "2026-11-10T02:24:54.080Z",
+  "checks": [
+    {
+      "label": "读了文件（Read）",
+      "ok": true,
+      "detail": [
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "label": "改了文件（Edit 或 Write）",
+      "ok": true,
+      "detail": [
+        "Read",
+        "Edit"
+      ]
+    },
+    {
+      "label": "文件内容确实改了",
+      "ok": true,
+      "detail": "status: final"
+    },
+    {
+      "label": "续接：记得之前做过什么",
+      "ok": true,
+      "detail": "draft"
+    },
+    {
+      "label": "分叉：带着原对话的记忆",
+      "ok": true,
+      "detail": "final"
+    },
+    {
+      "label": "分叉：得到一个新的会话 ID",
+      "ok": true,
+      "detail": "08eefd3c-50fd-4d3a-bf08-dbce4cbb2cac"
+    },
+    {
+      "label": "listSessions 能列出这个项目的会话",
+      "ok": true,
+      "detail": {
+        "count": 2
+      }
+    },
+    {
+      "label": "getSessionMessages 能读出历史消息",
+      "ok": true,
+      "detail": {
+        "count": 8,
+        "types": [
+          "user",
+          "assistant"
+        ]
+      }
+    }
+  ],
+  "notes": {
+    "第一轮会话 ID": "81435e9b-d587-4700-acd5-ccf2bc2a15e0",
+    "续接后的会话 ID（是否沿用原 ID）": {
+      "same": true,
+      "id": "81435e9b-d587-4700-acd5-ccf2bc2a15e0"
+    },
+    "listSessions 每条记录的字段": [
+      "sessionId",
+      "summary",
+      "lastModified",
+      "fileSize",
+      "customTitle",
+      "firstPrompt",
+      "gitBranch",
+      "cwd",
+      "tag",
+      "createdAt"
+    ],
+    "合计花费 USD（按官方价估算）": 0.0089
+  }
+}

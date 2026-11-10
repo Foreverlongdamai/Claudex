@@ -1,0 +1,36 @@
+{
+  "name": "08-suspend",
+  "at": "2026-11-10T02:36:57.434Z",
+  "checks": [
+    {
+      "label": "审批晚 45 秒回答，会话一直等着并完成",
+      "ok": true,
+      "detail": {
+        "result": "success",
+        "waitedMs": 50310,
+        "totalMs": 54400
+      }
+    },
+    {
+      "label": "等审批时拿到了会话 ID",
+      "ok": true,
+      "detail": "e66a41b5-7f31-4f98-95eb-4d5016ae2449"
+    },
+    {
+      "label": "关掉时命令还没执行",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "label": "续接后把事做完了",
+      "ok": true,
+      "detail": {
+        "result": "success",
+        "reply": "OK"
+      }
+    }
+  ],
+  "notes": {
+    "合计花费 USD（按官方价估算）": 0.0059
+  }
+}

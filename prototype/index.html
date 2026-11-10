@@ -1,0 +1,1953 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen 界面原型</title>
+<style>
+:root{
+  --bg:#ffffff;--side:#f9f9f9;--elev:#ffffff;--hover:rgba(0,0,0,.045);--active:rgba(0,0,0,.075);
+  --border:#e8e8e8;--border-strong:#d6d6d6;
+  --text:#0d0d0d;--muted:#5d5d5d;--faint:#8e8e8e;
+  --bubble:#f1f1f1;--code-bg:#f7f7f7;
+  --primary:#0d0d0d;--on-primary:#ffffff;
+  --danger:#df2f2a;--danger-soft:rgba(223,47,42,.08);
+  --env:#0e9a87;--env-soft:rgba(14,154,135,.09);
+  --ok:#1d9a53;
+  --add-bg:rgba(29,154,83,.10);--add-fg:#13784a;--del-bg:rgba(223,47,42,.09);--del-fg:#b42318;
+  --shadow:0 14px 36px rgba(0,0,0,.13),0 2px 6px rgba(0,0,0,.05);
+  --comp-shadow:0 4px 18px rgba(0,0,0,.06);
+  --pin:#f2a516;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,"Microsoft YaHei UI",monospace;
+}
+[data-theme="dark"]{
+  --bg:#1b1b1b;--side:#141414;--elev:#262626;--hover:rgba(255,255,255,.055);--active:rgba(255,255,255,.09);
+  --border:#2c2c2c;--border-strong:#3a3a3a;
+  --text:#ececec;--muted:#a3a3a3;--faint:#6c6c6c;
+  --bubble:#2b2b2b;--code-bg:#161616;
+  --primary:#ececec;--on-primary:#141414;
+  --danger:#ff5f57;--danger-soft:rgba(255,95,87,.11);
+  --env:#3cc8b3;--env-soft:rgba(60,200,179,.11);
+  --ok:#4cce85;
+  --add-bg:rgba(76,206,133,.12);--add-fg:#80e2aa;--del-bg:rgba(255,95,87,.12);--del-fg:#ffa09a;
+  --shadow:0 18px 44px rgba(0,0,0,.6);
+  --comp-shadow:0 4px 20px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;overflow:hidden;background:var(--bg);color:var(--text);
+  font:14px/1.65 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+code,.mono{font-family:var(--mono);font-size:.9em}
+:not(pre)>code{background:var(--hover);padding:1px 5px;border-radius:5px}
+kbd{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.rel{position:relative}
+.sp{flex:1}
+.ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ic.sm{width:14px;height:14px}
+.add{color:var(--add-fg)} .del{color:var(--del-fg)} .okc{color:var(--ok)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes blink{50%{opacity:0}}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+
+/* 标注 */
+.pin{position:absolute;z-index:6;width:20px;height:20px;border-radius:50%;background:var(--pin);color:#2a1a00;
+  font:700 11.5px/20px "Segoe UI",system-ui;text-align:center;box-shadow:0 0 0 3px rgba(242,165,22,.25);pointer-events:none}
+body.hide-pins .pin{display:none}
+
+/* ---------- 整体 ---------- */
+.app{height:100vh;display:grid;grid-template-columns:260px minmax(0,1fr)}
+
+/* ---------- 左栏 ---------- */
+.sidebar{background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.side-top{height:52px;flex:none;display:flex;align-items:center;gap:9px;padding:0 16px}
+.logo{width:18px;height:18px;border-radius:6px;background:var(--text);position:relative}
+.logo::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--side)}
+.brand{font-weight:650;font-size:15px}
+.proto{font-size:11px;color:var(--pin);border:1px solid rgba(242,165,22,.45);border-radius:999px;padding:0 7px;margin-left:auto}
+.nav{padding:2px 8px 6px}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;padding:6px 10px;border:0;background:none;border-radius:8px;cursor:pointer;font-size:13.5px;text-align:left}
+.nav-item:hover{background:var(--hover)}
+.nav-item .ic{color:var(--muted)}
+.nav-item kbd,.nav-item .ms{margin-left:auto}
+.ms{font-size:10.5px;font-weight:600;color:var(--faint);border:1px solid var(--border-strong);border-radius:5px;padding:0 5px;line-height:16px}
+.side-label{font-size:12px;color:var(--faint);padding:12px 18px 4px}
+.tree{flex:1;overflow:auto;padding:0 8px 8px}
+.proj-head{display:flex;align-items:center;gap:8px;padding:5px 10px;color:var(--muted);font-size:13px;cursor:pointer;border-radius:8px;margin-top:2px}
+.proj-head:hover{background:var(--hover);color:var(--text)}
+.proj:not(.open) .sess{display:none}
+.sess{display:flex;gap:8px;align-items:center;padding:5px 10px 5px 34px;border-radius:8px;cursor:pointer;font-size:13.5px}
+.sess:hover{background:var(--hover)}
+.sess.active{background:var(--active)}
+.sess .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .when{color:var(--faint);font-size:11.5px;flex:none}
+.side-foot{display:flex;align-items:center;gap:2px;padding:8px;border-top:1px solid var(--border)}
+.side-foot .nav-item{width:auto;flex:1}
+.ibtn{border:0;background:none;color:var(--muted);width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;font-size:12px}
+.ibtn:hover{background:var(--hover);color:var(--text)}
+.ibtn.on{color:var(--pin)}
+
+/* ---------- 顶栏 ---------- */
+.mainwrap{display:flex;flex-direction:column;min-width:0;min-height:0}
+.topbar{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding-left:22px;border-bottom:1px solid var(--border)}
+.tt{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tp{color:var(--faint);font-size:13px;flex:none}
+.mode-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;border-radius:999px;padding:1px 9px;border:1px solid;flex:none}
+.mode-pill.bypass{color:var(--danger);border-color:var(--danger);background:var(--danger-soft)}
+.mode-pill.envsetup{color:var(--env);border-color:var(--env);background:var(--env-soft)}
+.top-actions{display:flex;gap:6px;align-items:center;flex:none}
+.tbtn{display:flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid var(--border);background:var(--bg);border-radius:8px;cursor:pointer;font-size:12.5px}
+.tbtn:hover{background:var(--hover)}
+.tbtn.on{background:var(--active)}
+.winctl{display:flex;height:52px;margin-left:6px}
+.winctl span{width:46px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.winctl span:hover{background:var(--hover)}
+.winctl .x:hover{background:#c42b1c;color:#fff}
+
+/* ---------- 对话 + 改动面板 ---------- */
+.content{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 380px}
+.content.no-review{grid-template-columns:minmax(0,1fr) 0}
+.chat{display:flex;flex-direction:column;min-width:0;min-height:0}
+.thread{flex:1;overflow:auto;padding:28px 0 12px}
+.col{max-width:760px;margin:0 auto;padding:0 36px}
+.day{text-align:center;color:var(--faint);font-size:12px;margin-bottom:18px}
+.msg{margin:16px 0}
+.msg.user{display:flex;justify-content:flex-end}
+.bubble{background:var(--bubble);padding:9px 16px;border-radius:20px;max-width:80%;white-space:pre-wrap}
+.msg.assistant .text{white-space:pre-wrap;font-size:14.5px;line-height:1.75}
+.thinking{color:var(--faint);font-size:13.5px}
+.thinking::after{content:"";display:inline-block;width:1.2em;animation:dots 1.2s steps(4) infinite}
+.caret{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text);margin-left:4px;vertical-align:1px;animation:blink 1s steps(2) infinite}
+.stopped{color:var(--faint);font-size:12.5px;margin-left:6px}
+
+.act{margin:4px 0}
+.act-head{display:inline-flex;align-items:center;gap:8px;padding:3px 0;color:var(--muted);font-size:13.5px;cursor:pointer;max-width:100%}
+.act-head:hover{color:var(--text)}
+.act-head .verb{flex:none}
+.act-head .obj{font-family:var(--mono);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.act-head .meta{color:var(--faint);font-size:12.5px;flex:none}
+.act-head .chev{opacity:0;transition:transform .15s,opacity .15s;width:13px;height:13px}
+.act-head:hover .chev,.act.open .chev{opacity:1}
+.act.open .chev{transform:rotate(90deg)}
+.act-body{display:none;margin:4px 0 12px}
+.act.open .act-body{display:block}
+.shimmer{background:linear-gradient(90deg,var(--faint) 0%,var(--text) 50%,var(--faint) 100%);background-size:200% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.6s linear infinite}
+.tag{font-size:11px;padding:0 6px;border-radius:5px;line-height:18px;flex:none}
+.tag.auto{color:var(--env);background:var(--env-soft)}
+.tag.fail{color:var(--danger);background:var(--danger-soft)}
+pre.out{margin:0;padding:10px 14px;font:12.5px/1.6 var(--mono);background:var(--code-bg);border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:260px}
+.think{color:var(--muted);font-size:13px;border-left:2px solid var(--border-strong);padding:2px 0 2px 12px}
+.box{border:1px solid var(--border);border-radius:10px;overflow:hidden}
+
+.diff{font:12.5px/1.6 var(--mono);overflow:auto;background:var(--code-bg);padding:6px 0}
+.dl{display:flex;white-space:pre;min-width:max-content}
+.dl .ln{width:36px;text-align:right;padding-right:8px;color:var(--faint);flex:none;user-select:none}
+.dl .sg{width:16px;flex:none;text-align:center;user-select:none}
+.dl .code{padding-right:16px}
+.dl.add{background:var(--add-bg)} .dl.add .sg,.dl.add .code{color:var(--add-fg)}
+.dl.del{background:var(--del-bg)} .dl.del .sg,.dl.del .code{color:var(--del-fg)}
+
+.plan{border:1px solid var(--border);border-radius:12px;padding:8px 14px 6px;margin:10px 0}
+.plan-head{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;margin-bottom:2px}
+.todo{list-style:none;margin:0;padding:0}
+.todo li{display:flex;gap:10px;padding:3px 0;font-size:13.5px;align-items:flex-start}
+.todo li::before{content:"";width:14px;height:14px;border-radius:50%;border:1.6px solid var(--faint);flex:none;margin-top:4px}
+.todo li.done{color:var(--faint);text-decoration:line-through}
+.todo li.done::before{border-color:var(--ok);background:var(--ok);box-shadow:inset 0 0 0 2.5px var(--bg)}
+.todo li.doing::before{border-color:var(--text);border-top-color:transparent;animation:spin 1s linear infinite}
+
+.approval{border:1px solid var(--border-strong);background:var(--elev);border-radius:16px;padding:14px 16px;margin:16px 0;box-shadow:var(--comp-shadow)}
+.ap-title{font-weight:600;display:flex;align-items:center;gap:8px}
+.ap-cmd{font-family:var(--mono);font-size:13px;background:var(--code-bg);border:1px solid var(--border);border-radius:9px;padding:8px 12px;margin:10px 0 6px}
+.ap-meta,.ap-hint{color:var(--faint);font-size:12px}
+.ap-hint{margin-top:10px}
+.ap-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.deny-box{display:none;gap:8px;margin-top:10px}
+.deny-box.show{display:flex}
+.deny-box input{flex:1;border:1px solid var(--border-strong);background:var(--bg);color:var(--text);border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;outline:0}
+.deny-box input:focus{border-color:var(--text)}
+.ap-done{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);margin:8px 0}
+.ap-done.deny{color:var(--danger)}
+
+.mode-note{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--muted);border:1px dashed var(--border-strong);border-radius:12px;padding:9px 14px;margin-bottom:6px}
+.mode-note .ic{color:var(--env);margin-top:3px}
+.mode-note b{color:var(--env);font-weight:600}
+.link{border:0;background:none;color:var(--text);text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:0;font-size:inherit;flex:none}
+.report{border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin:8px 0 16px}
+.report-head{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:4px;color:var(--ok)}
+.report-foot{font-size:12.5px;color:var(--muted);margin-top:10px}
+.kv{display:flex;justify-content:space-between;gap:16px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
+.kv:last-of-type{border-bottom:0}
+.kv span:first-child{color:var(--muted);flex:none}
+.kv span:last-child{text-align:right}
+
+.rec{border:1px solid var(--border-strong);background:var(--elev);border-radius:16px;padding:14px 16px;margin:14px 0;box-shadow:var(--comp-shadow)}
+.rec.done{opacity:.65}
+.rec.done .cand,.rec.done .tchip,.rec.done .ap-actions,.rec.done .link{pointer-events:none}
+.rec-head{display:flex;align-items:center;gap:8px;font-weight:600}
+.rec-sec{font-size:12px;color:var(--faint);margin:14px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.tchip{font-family:var(--mono);font-size:12px;border:1px dashed var(--border-strong);background:none;border-radius:999px;padding:2px 10px;cursor:pointer;color:var(--faint);text-decoration:line-through}
+.tchip.on{border-style:solid;color:var(--text);text-decoration:none;background:var(--hover)}
+.tchip.on::before{content:"✓ ";color:var(--ok)}
+.cand{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--border);border-radius:12px;margin-bottom:6px;cursor:pointer;transition:opacity .15s}
+.cand:hover{background:var(--hover)}
+.cand.off{opacity:.55}
+.cand input{margin:5px 0 0;accent-color:var(--text);cursor:pointer;flex:none}
+.cand-main{flex:1;min-width:0}
+.cand-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cand-title b{font-family:var(--mono);font-size:13px;font-weight:600}
+.kind{font-size:10.5px;border:1px solid var(--border-strong);border-radius:5px;padding:0 5px;color:var(--muted)}
+.repo{font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+.cand-desc{font-size:12.5px;color:var(--muted);margin-top:1px}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
+.badges span{font-size:11px;color:var(--muted);background:var(--hover);border-radius:5px;padding:0 6px;line-height:18px}
+.badges .good{color:var(--ok)}
+.badges .warn{color:#d48a1a;background:rgba(212,138,26,.13)}
+.badges .official{color:var(--env);background:var(--env-soft)}
+.link.sm{font-size:12px;color:var(--muted);margin-top:2px}
+.rec-foot{margin-top:12px}
+.rec-note{font-size:12px;color:var(--faint)}
+.empty{color:var(--faint);font-size:13px;text-align:center;padding:40px 10px}
+
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);background:var(--bg);padding:6px 14px;border-radius:999px;cursor:pointer;font-size:13px;white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary);font-weight:600}
+.btn.primary:hover{opacity:.88}
+.btn.ghost{border-color:transparent;color:var(--muted)}
+.btn.red{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:600}
+.btn.teal{background:var(--env);border-color:var(--env);color:#fff;font-weight:600}
+.btn.sm{padding:3px 11px;font-size:12px}
+
+/* ---------- 输入框 ---------- */
+.composer-wrap{width:100%;max-width:832px;margin:0 auto;padding:4px 36px 14px}
+.composer{position:relative;border:1px solid var(--border-strong);background:var(--elev);border-radius:24px;padding:12px 10px 8px 16px;box-shadow:var(--comp-shadow);transition:border-color .2s,box-shadow .2s}
+body.mode-bypass .composer{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-soft)}
+body.mode-envsetup .composer{border-color:var(--env);box-shadow:0 0 0 3px var(--env-soft)}
+#input{display:block;width:100%;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:14.5px;resize:none;min-height:48px;max-height:200px;padding:2px 2px;line-height:1.6}
+#input::placeholder{color:var(--faint)}
+.cbar{display:flex;align-items:center;gap:6px;margin-top:4px}
+.chip{display:flex;align-items:center;gap:5px;border:0;background:none;color:var(--muted);padding:5px 9px;border-radius:999px;cursor:pointer;font-size:13px;white-space:nowrap}
+.chip:hover{background:var(--hover);color:var(--text)}
+.ring{display:flex;align-items:center;gap:4px;border:0;background:none;color:var(--faint);font-size:12px;padding:5px 6px;border-radius:999px;cursor:pointer}
+.ring:hover{background:var(--hover)}
+.send{width:34px;height:34px;border-radius:50%;border:0;background:var(--primary);color:var(--on-primary);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+.send .ic{stroke-width:2.2}
+.send:disabled{opacity:.25;cursor:default}
+.under{display:flex;align-items:center;gap:2px;padding:8px 4px 0}
+.mchip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:none;border-radius:999px;padding:3px 10px 3px 9px;cursor:pointer;font-size:12.5px;color:var(--muted);margin-right:4px}
+.mchip:hover{color:var(--text);border-color:var(--border-strong)}
+body.mode-bypass .mchip{color:var(--danger);border-color:var(--danger);background:var(--danger-soft)}
+body.mode-envsetup .mchip{color:var(--env);border-color:var(--env);background:var(--env-soft)}
+.uchip{display:flex;align-items:center;gap:6px;border:0;background:none;color:var(--muted);font-size:12.5px;padding:3px 8px;border-radius:8px;cursor:pointer}
+.uchip:hover{background:var(--hover);color:var(--text)}
+.uhint{font-size:11.5px;color:var(--faint)}
+
+.dd{position:relative}
+.pop,.menu{position:absolute;bottom:calc(100% + 10px);background:var(--elev);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:6px;display:none;z-index:30}
+.pop.show,.menu.show{display:block}
+.pop{right:0;width:320px}
+.pop.small{width:260px}
+.menu{left:0;width:340px}
+.menu-sec{font-size:11.5px;color:var(--faint);padding:7px 10px 3px}
+.menu-sep{height:1px;background:var(--border);margin:5px 4px}
+.menu .mitem{display:flex;width:100%;text-align:left;border:0;background:none;border-radius:9px;padding:7px 10px;cursor:pointer;gap:10px;align-items:flex-start}
+.menu .mitem:hover{background:var(--hover)}
+.menu .mitem .ic{margin-top:3px;color:var(--muted)}
+.menu .mitem.danger .ic,.menu .mitem.danger b{color:var(--danger)}
+.menu .mitem.env .ic,.menu .mitem.env b{color:var(--env)}
+.mi{flex:1;display:flex;flex-direction:column}
+.mi b{font-weight:600;font-size:13.5px}
+.mi span{color:var(--muted);font-size:12px;line-height:1.5}
+.menu .mitem .tick{visibility:hidden;color:var(--text)}
+.menu .mitem.on .tick{visibility:visible}
+.menu-foot{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);border-top:1px solid var(--border);margin-top:6px;padding:7px 10px 3px}
+.pop-sec{font-size:11.5px;color:var(--faint);padding:8px 10px 4px}
+.opt{display:flex;width:100%;text-align:left;border:0;background:none;border-radius:9px;padding:7px 10px;cursor:pointer;gap:10px;align-items:center}
+.opt:hover{background:var(--hover)}
+.opt-main{font-weight:600;font-size:13.5px}
+.opt-desc{color:var(--muted);font-size:12px;margin-left:auto}
+.opt .tick{visibility:hidden}
+.opt.on .tick{visibility:visible}
+.seg{display:flex;background:var(--hover);border-radius:10px;padding:3px;margin:0 8px 2px;gap:2px}
+.seg button{flex:1;border:0;background:none;border-radius:8px;padding:4px 0;cursor:pointer;font-size:12.5px;color:var(--muted)}
+.seg button.on{background:var(--elev);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.2);font-weight:600}
+.seg button:disabled{opacity:.35;cursor:not-allowed}
+.pop-note{font-size:11.5px;color:var(--muted);padding:5px 10px 2px}
+.pop-foot{font-size:11.5px;color:var(--faint);border-top:1px solid var(--border);margin-top:8px;padding:7px 10px 3px}
+.pop .kv{padding:5px 10px}
+.bar{height:6px;border-radius:99px;background:var(--hover);overflow:hidden;margin:2px 10px 6px}
+.bar i{display:block;height:100%;width:38%;background:var(--text);border-radius:99px}
+
+#popup{position:absolute;left:10px;bottom:calc(100% + 8px);width:440px;max-height:320px;overflow:auto;background:var(--elev);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:6px;display:none;z-index:30}
+#popup.show{display:block}
+.pg{font-size:11.5px;color:var(--faint);padding:6px 10px 3px}
+.pi{display:flex;gap:12px;padding:6px 10px;border-radius:8px;cursor:pointer;align-items:baseline}
+.pi.sel{background:var(--active)}
+.pk{font-family:var(--mono);font-size:13px;flex:none}
+.pd{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- 改动面板 ---------- */
+.review{border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0;min-width:0}
+.content.no-review .review{border:0;overflow:hidden}
+.rev-top{height:46px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 0 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.rev-body{flex:1;overflow:auto;padding:12px}
+.rfile{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.rfile-head{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12.5px;border-bottom:1px solid var(--border)}
+.rfile-head .fn{font-family:var(--mono);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.review .dl .ln{width:28px}
+
+/* ---------- 弹窗 ---------- */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.overlay.show{display:flex}
+.modal{background:var(--bg);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);width:min(560px,100%);max-height:100%;overflow:auto;padding:22px 24px}
+.modal h2{margin:0 0 6px;font-size:17px;display:flex;align-items:center;gap:8px}
+.modal p{margin:6px 0;color:var(--muted);font-size:13.5px}
+.guide-list{margin:14px 0 6px;padding:0;list-style:none;counter-reset:g}
+.guide-list li{display:flex;gap:10px;padding:4px 0;font-size:13.5px}
+.guide-list li::before{counter-increment:g;content:counter(g);width:20px;height:20px;border-radius:50%;background:var(--pin);color:#2a1a00;font-weight:700;font-size:11.5px;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+.new{font-size:10.5px;font-weight:700;color:#fff;background:var(--env);border-radius:4px;padding:0 5px;margin-left:4px}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;align-items:center}
+.mfoot label{margin-right:auto;font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer}
+.mfoot .note{margin-right:auto;font-size:12px;color:var(--faint)}
+.warnbox{background:var(--danger-soft);border:1px solid var(--danger);border-radius:12px;padding:10px 14px;margin:12px 0;font-size:13px}
+.warnbox ul{margin:6px 0 0;padding-left:18px}
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 4px}
+.rules > div{border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+.rules h4{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:6px}
+.rules ul{margin:0;padding-left:16px;font-size:12.5px;color:var(--muted)}
+.rules li{margin:3px 0}
+.rules .r-ok h4{color:var(--env)} .rules .r-ask h4{color:var(--text)} .rules .r-no h4{color:var(--danger)}
+.modal.rules-modal{width:min(820px,100%)}
+
+.modal.wide{width:min(940px,100%);height:min(620px,100%);padding:0;display:flex;flex-direction:column;overflow:hidden}
+.mhead{display:flex;align-items:center;gap:10px;padding:10px 14px 0 14px;border-bottom:1px solid var(--border)}
+.mtabs{display:flex;gap:2px;flex:1}
+.mtab{border:0;background:none;padding:8px 14px 10px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.mtab.active{color:var(--text);border-bottom-color:var(--text)}
+.mbody{flex:1;min-height:0}
+.mpane{display:none;height:100%;overflow:auto}
+.mpane.active{display:block}
+.split{display:grid;grid-template-columns:290px 1fr;height:100%}
+.slist{border-right:1px solid var(--border);overflow:auto;padding:10px}
+.search{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:9px;background:var(--hover);margin-bottom:8px}
+.search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:13px}
+.skill{padding:7px 10px;border-radius:9px;cursor:pointer;margin-bottom:2px}
+.skill:hover{background:var(--hover)}
+.skill.active{background:var(--active)}
+.skill .sn{font-family:var(--mono);font-size:13px;display:flex;gap:8px;align-items:center}
+.skill .sd{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;font-size:10.5px;border:1px solid var(--border-strong);border-radius:5px;padding:0 5px;color:var(--muted)}
+.sedit{display:flex;flex-direction:column;min-width:0}
+.sbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px}
+.ro{color:var(--danger)}
+pre.editor{margin:0;flex:1;overflow:auto;padding:14px 18px;font:13px/1.7 var(--mono);background:var(--code-bg);white-space:pre-wrap}
+.c-key{color:var(--env)} .c-mut{color:var(--faint)} .c-h{font-weight:700}
+.mpad{padding:16px 22px}
+.mtop{display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:13px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:left;font-weight:500;color:var(--faint);font-size:12px;padding:6px 10px;border-bottom:1px solid var(--border)}
+.tbl td{padding:9px 10px;border-bottom:1px solid var(--border)}
+.st{display:inline-flex;align-items:center;gap:6px}
+.st::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.st.ok{color:var(--ok)} .st.warn{color:#d48a1a} .st.bad{color:var(--danger)}
+.sec{font-size:12px;color:var(--faint);margin:18px 0 4px}
+.sec:first-child{margin-top:0}
+.row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+.row .lbl{width:210px;flex:none}
+.row .lbl small{display:block;color:var(--faint);font-size:11.5px}
+.row .val{flex:1;min-width:0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.sel{border:1px solid var(--border-strong);border-radius:8px;padding:2px 10px}
+.rule{font-family:var(--mono);font-size:12px;border:1px solid var(--border-strong);border-radius:6px;padding:1px 8px}
+.rule.bad{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+.mnote{font-size:12px;color:var(--faint);margin-top:12px}
+
+#toasts{position:fixed;left:calc(50% + 130px);transform:translateX(-50%);bottom:150px;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:70;pointer-events:none}
+.toast{background:var(--primary);color:var(--on-primary);padding:8px 16px;border-radius:999px;font-size:13px;box-shadow:var(--shadow);transition:opacity .3s,transform .3s;max-width:600px}
+.toast.out{opacity:0;transform:translateY(6px)}
+
+/* ---------- 第 4 版：Codex 功能 ---------- */
+.spin{width:12px;height:12px;border:2px solid var(--border-strong);border-top-color:var(--text);border-radius:50%;animation:spin .8s linear infinite;display:inline-block;flex:none}
+.cnt-badge{margin-left:auto;font-size:11px;font-weight:600;background:var(--text);color:var(--bg);border-radius:999px;padding:0 6px;line-height:17px}
+.nav-item.active{background:var(--active)}
+.wt-ic{color:var(--faint)}
+.wt-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);border:1px solid var(--border-strong);border-radius:999px;padding:1px 9px;font-family:var(--mono);flex:none}
+.mode-note.wt .ic{color:var(--text)}
+.menu.right{left:auto;right:0;width:190px}
+.menu .simple{display:block;width:100%;text-align:left;border:0;background:none;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13px}
+.menu .simple:hover{background:var(--hover)}
+.hero{text-align:center;padding:18vh 20px 0}
+.hero-t{font-size:22px;font-weight:600}
+.hero-s{color:var(--muted);font-size:13.5px;margin:8px auto 0;max-width:520px}
+
+.term{flex:none;height:220px;border-top:1px solid var(--border);display:flex;flex-direction:column;background:var(--code-bg)}
+.term-head{display:flex;align-items:center;gap:8px;padding:3px 8px 3px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-family:var(--mono)}
+.term-body{flex:1;overflow:auto;padding:8px 14px;font:12.5px/1.6 var(--mono);cursor:text}
+.term-out div{white-space:pre-wrap}
+.term-in{display:flex;gap:8px}
+.term-in input{flex:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit;padding:0}
+
+.rev-top .rev-seg{margin:0;flex:none}
+.rev-seg button{padding:3px 9px;flex:none}
+.rev-sub{font-size:12px;color:var(--faint);padding:8px 16px 0}
+.rfile-head .acts{display:flex;gap:2px;opacity:0;transition:opacity .15s}
+.rfile:hover .acts{opacity:1}
+.rfile-head .acts button{border:0;background:none;color:var(--muted);font-size:12px;padding:1px 6px;border-radius:6px;cursor:pointer}
+.rfile-head .acts button:hover{background:var(--hover);color:var(--text)}
+.rfile.staged .rfile-head{background:var(--hover)}
+.stg{font-size:10.5px;color:var(--ok);border:1px solid var(--ok);border-radius:5px;padding:0 4px;flex:none}
+.review .dl{position:relative}
+.review .dl .cbtn{position:absolute;left:2px;top:2px;width:17px;height:17px;border-radius:5px;border:0;background:var(--primary);color:var(--on-primary);font:600 13px/17px system-ui;padding:0;cursor:pointer;display:none}
+.review .dl:hover .cbtn{display:block}
+.cbox,.cnote{padding:8px 10px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg);font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;white-space:normal;min-width:0}
+.cbox textarea{width:100%;border:1px solid var(--border-strong);background:var(--elev);color:var(--text);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;resize:vertical;outline:0}
+.cbox .row2{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.cnote{display:flex;gap:8px;font-size:12.5px}
+.cnote .ic{color:var(--muted);margin-top:3px}
+.cnote small{color:var(--faint);display:block}
+.commit{flex:none;border-top:1px solid var(--border);padding:10px 12px}
+.commit textarea{width:100%;border:1px solid var(--border-strong);background:var(--elev);color:var(--text);border-radius:10px;padding:7px 10px;font:inherit;font-size:13px;resize:none;outline:0}
+.commit textarea:focus{border-color:var(--text)}
+.commit-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.commit-info{font-size:12px;color:var(--faint)}
+.split-btn{display:flex}
+.split-btn .btn:first-child{border-radius:999px 0 0 999px}
+.split-btn .btn:last-child{border-radius:0 999px 999px 0;border-left-color:rgba(127,127,127,.4);padding:3px 7px}
+.btn:disabled{opacity:.35;cursor:default}
+
+.autoview{flex:1;overflow:auto;min-height:0}
+.av-inner{max-width:900px;margin:0 auto;padding:28px 36px}
+.av-head{display:flex;align-items:center;gap:12px}
+.av-head h1{font-size:22px;margin:0}
+.av-sub{color:var(--muted);font-size:13.5px;margin:6px 0 10px}
+.av-sec{font-size:12.5px;color:var(--faint);margin:20px 0 8px;display:flex;gap:6px;align-items:center}
+.av-sec .cnt{font-size:11px;background:var(--hover);border-radius:999px;padding:0 7px;color:var(--muted)}
+.qitem{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:8px}
+.q-ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}
+.q-ic.ok{color:var(--ok);background:rgba(76,206,133,.13)}
+.q-ic.wait{color:#d48a1a;background:rgba(212,138,26,.13)}
+.q-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.q-main span{font-size:12.5px;color:var(--muted)}
+.q-empty{color:var(--faint);font-size:13px;padding:6px 2px}
+.td-sub{font-size:12px;color:var(--muted)}
+.mini-sw{width:30px;height:17px;border-radius:99px;background:var(--border-strong);position:relative;cursor:pointer;flex:none;border:0;padding:0}
+.mini-sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:left .15s}
+.mini-sw.on{background:var(--ok)}
+.mini-sw.on::after{left:15px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-top:12px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+.form .full{grid-column:1/-1}
+.form input,.form select,.form textarea{border:1px solid var(--border-strong);background:var(--bg);color:var(--text);border-radius:9px;padding:6px 10px;font:inherit;font-size:13px;outline:0;resize:vertical}
+.form input:focus,.form select:focus,.form textarea:focus{border-color:var(--text)}
+.form-note{font-size:12px!important}
+</style>
+</head>
+<body>
+
+<!-- ======================= 图标 ======================= -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-new" viewBox="0 0 24 24"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2 2 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4M17 19h4"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+  <symbol id="i-filecheck" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="m9 15 2 2 4-4"/></symbol>
+  <symbol id="i-plan" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-listcheck" viewBox="0 0 24 24"><path d="M11 6h9M11 12h9M11 18h9"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></symbol>
+  <symbol id="i-ask" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-local" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-comment" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.5 7.2L4 21l1.8-5.5A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></symbol>
+</svg>
+
+<div class="app" id="app">
+
+  <!-- ======================= 左栏 ======================= -->
+  <aside class="sidebar rel">
+    <div class="side-top"><span class="logo"></span><span class="brand">Lumen</span><span class="proto">原型 · 示例数据</span></div>
+    <div class="nav">
+      <button class="nav-item" id="btnNew"><svg class="ic"><use href="#i-new"/></svg>新对话<kbd>Ctrl+N</kbd></button>
+      <button class="nav-item" id="btnSearch"><svg class="ic"><use href="#i-search"/></svg>搜索<span class="ms" title="M2 阶段实现">M2</span></button>
+      <button class="nav-item rel" id="btnAuto"><span class="pin" style="top:5px;left:-6px">10</span><svg class="ic"><use href="#i-clock"/></svg>自动化<span class="cnt-badge" id="autoBadge" title="审查队列里等你看的结果">2</span></button>
+      <button class="nav-item" data-manage="skills"><svg class="ic"><use href="#i-spark"/></svg>Skills</button>
+      <button class="nav-item" data-manage="mcp"><svg class="ic"><use href="#i-plug"/></svg>MCP 服务器</button>
+    </div>
+    <div class="side-label rel">对话<span class="pin" style="top:10px;left:48px">1</span></div>
+    <div class="tree">
+      <div class="proj open" id="projWeb">
+        <div class="proj-head"><svg class="ic sm"><use href="#i-folder"/></svg>web-app</div>
+        <div class="sess active" data-thread="web"><span class="t">给 formatDate 加时区参数</span><span class="when">刚刚</span></div>
+        <div class="sess" data-thread="wt"><span class="t">修复登录页样式错位</span><svg class="ic sm wt-ic"><use href="#i-layers"/></svg><i class="spin" title="正在运行"></i></div>
+        <div class="sess"><span class="t">重构 API 请求层</span><span class="when">3 天</span></div>
+      </div>
+      <div class="proj open">
+        <div class="proj-head"><svg class="ic sm"><use href="#i-folder"/></svg>proj</div>
+        <div class="sess" data-thread="env"><span class="t">为项目挑选 Skills 和工具</span><span class="when">今天</span></div>
+        <div class="sess"><span class="t">实验结果分析</span><span class="when">上周</span></div>
+      </div>
+      <div class="proj">
+        <div class="proj-head"><svg class="ic sm"><use href="#i-folder"/></svg>claude_code_lm</div>
+        <div class="sess"><span class="t">桌面 App 方案讨论</span><span class="when">今天</span></div>
+      </div>
+    </div>
+    <div class="side-foot">
+      <button class="nav-item" data-manage="settings"><svg class="ic"><use href="#i-gear"/></svg>设置</button>
+      <button class="ibtn" id="btnGuide" title="原型说明"><svg class="ic"><use href="#i-info"/></svg></button>
+      <button class="ibtn on" id="btnPins" title="显示 / 隐藏黄色标注"><svg class="ic"><use href="#i-pin"/></svg></button>
+      <button class="ibtn" id="btnTheme" title="深色 / 浅色"><svg class="ic"><use href="#i-moon"/></svg></button>
+    </div>
+  </aside>
+
+  <div class="mainwrap">
+    <!-- ======================= 顶栏 ======================= -->
+    <div class="topbar">
+      <span class="tt" id="hdrTitle">给 formatDate 加时区参数</span>
+      <span class="tp" id="hdrProj">web-app</span>
+      <span class="mode-pill" id="modePill" hidden></span>
+      <span class="wt-chip" id="wtChip" hidden title="这个对话在独立的 worktree 里运行"><svg class="ic sm"><use href="#i-layers"/></svg><span id="wtName"></span></span>
+      <span class="sp"></span>
+      <div class="top-actions" id="topActions">
+        <button class="tbtn" id="btnHandoff" hidden title="把 worktree 里的改动合到本地分支"><svg class="ic sm"><use href="#i-download"/></svg>接手到本地</button>
+        <button class="tbtn rel" id="btnTerm" title="终端（Ctrl+`）"><span class="pin" style="top:-10px;left:-10px">9</span><svg class="ic sm"><use href="#i-term"/></svg>终端</button>
+        <button class="tbtn" data-proto="用 VS Code 打开这个项目"><svg class="ic sm"><use href="#i-code"/></svg>打开</button>
+        <button class="tbtn on" id="btnReview" title="显示 / 隐藏改动面板"><svg class="ic sm"><use href="#i-panel"/></svg><span id="diffStat"></span></button>
+        <button class="tbtn" data-proto="更多：重命名、分叉、导出对话"><svg class="ic sm"><use href="#i-dots"/></svg></button>
+      </div>
+      <div class="winctl"><span>─</span><span>☐</span><span class="x">✕</span></div>
+    </div>
+
+    <div class="content" id="content">
+      <!-- ======================= 对话 ======================= -->
+      <main class="chat">
+        <div class="thread" id="thread">
+
+          <!-- 对话一：web-app，演示审批 -->
+          <div class="col" data-thread="web" id="colWeb">
+            <div class="day">今天 15:42</div>
+            <div class="msg user"><div class="bubble">给 src/utils.ts 里的 formatDate 加一个时区参数，默认用本地时区，改完跑一下相关测试。</div></div>
+
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-clock"/></svg><span class="verb">已思考 4 秒</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><div class="think">要给 formatDate 加时区参数。先读文件确认现在的签名；参数做成可选，避免影响已有调用；改完只跑 utils 相关的测试，不跑全量。</div></div>
+            </div>
+
+            <div class="msg assistant"><div class="text">好的，我先看一下现在的实现。</div></div>
+
+            <div class="act rel">
+              <span class="pin" style="top:3px;left:-30px">2</span>
+              <div class="act-head"><svg class="ic sm"><use href="#i-file"/></svg><span class="verb">已读取</span><span class="obj">src/utils.ts</span><span class="meta">48 行</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">11  /** 把日期格式化成本地字符串 */
+12  export function formatDate(
+13    date: Date
+14  ): string {
+15    return date.toLocaleString('zh-CN');
+16  }
+17
+18  export function parseQuery(qs: string) {
+…</pre></div>
+            </div>
+
+            <div class="msg assistant"><div class="text"><code>formatDate</code> 现在直接调用 <code>toLocaleString()</code>，没法指定时区。我加一个可选参数 <code>timeZone</code>，不传时保持原来的行为。</div></div>
+
+            <div class="act open rel">
+              <span class="pin" style="top:3px;left:-30px">3</span>
+              <div class="act-head"><svg class="ic sm"><use href="#i-pen"/></svg><span class="verb">已编辑</span><span class="obj">src/utils.ts</span><span class="meta"><span class="add">+5</span> <span class="del">−2</span></span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><div class="box" data-diff="web-utils"></div></div>
+            </div>
+
+            <div class="plan">
+              <div class="plan-head"><svg class="ic sm"><use href="#i-listcheck"/></svg>计划 · <span id="planCnt">2/4</span></div>
+              <ul class="todo" id="webPlan">
+                <li class="done">阅读 formatDate 的现有实现</li>
+                <li class="done">加上可选参数 timeZone</li>
+                <li class="doing">运行 utils 相关的测试</li>
+                <li>补一个指定时区的测试用例</li>
+              </ul>
+            </div>
+
+            <div class="approval rel" id="approval">
+              <span class="pin" style="top:-9px;left:-9px">4</span>
+              <div class="ap-title"><svg class="ic"><use href="#i-term"/></svg>Claude 想运行一条命令</div>
+              <div class="ap-cmd">pnpm test -- utils</div>
+              <div class="ap-meta">工作目录 D:\demo\web-app · 用途：运行 utils 相关的单元测试</div>
+              <div class="ap-actions">
+                <button class="btn primary" data-ap="once">允许一次</button>
+                <button class="btn" data-ap="always">总是允许 <code>pnpm test *</code></button>
+                <button class="btn ghost" data-ap="deny">拒绝…</button>
+              </div>
+              <div class="deny-box" id="denyBox">
+                <input id="denyReason" placeholder="告诉 Claude 为什么拒绝（可选），比如：先别跑，我还要改">
+                <button class="btn" data-ap="denySend">发送</button>
+              </div>
+              <div class="ap-hint">在输入框下方把模式切到「完全访问」，这类确认就不再出现。</div>
+            </div>
+          </div>
+
+          <!-- 对话二：proj，演示 Skills 配置模式（按项目需求挑选 Skills 和工具） -->
+          <div class="col" data-thread="env" id="colEnv" hidden>
+            <div class="day">今天 16:05</div>
+            <div class="mode-note"><svg class="ic"><use href="#i-wrench"/></svg><span>本对话使用 <b>Skills 配置模式</b>：按项目需求挑选 Skills 和工具。盘点、搜索、阅读直接执行；安装、保留和关闭要你在推荐清单里确认；下载来的脚本一律不运行。<button class="link" data-open-rules>查看规则</button></span></div>
+            <div class="msg user"><div class="bubble">这个项目是做 NeurIPS 论文的：要在 GPU 上跑实验、用 W&amp;B 记录、查文献，最后写 LaTeX 论文。帮我配好合适的 Skills 和工具。</div></div>
+
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-file"/></svg><span class="verb">已查看 4 个文件</span><span class="obj">README.md, requirements.txt, CLAUDE.md, paper/main.tex</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out"># requirements.txt（节选）
+torch==2.5.1
+wandb==0.19.1
+matplotlib
+…
+
+# paper/main.tex
+\documentclass{article}
+\usepackage{neurips_2026}</pre></div>
+            </div>
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-spark"/></svg><span class="verb">已盘点已安装的 134 个 Skills、1 个 MCP 服务器</span><span class="tag auto">自动允许</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">用户级 Skills    63 个
+插件自带 Skills   71 个（anthropic-agent-skills、fullstack-dev-skills）
+项目级 Skills     0 个
+MCP 服务器       codex（用户级，已连接）</pre></div>
+            </div>
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-search"/></svg><span class="verb">已搜索 GitHub 和 Skills 目录</span><span class="obj">4 组关键词</span><span class="tag auto">自动允许</span><span class="meta">找到 23 个候选</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">"claude skill neurips paper writing"
+"claude skill latex paper"
+"wandb mcp server"
+"claude skill experiment tracking gpu"</pre></div>
+            </div>
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-file"/></svg><span class="verb">已阅读 6 个候选的 SKILL.md 和文件清单</span><span class="tag auto">自动允许</span><span class="meta">只读，没有运行任何脚本</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">Master-cai/Research-Paper-Writing-Skills   43 个文件 · 0 个脚本 · MIT
+SNL-UCSB/paper-writing-skill               35 个文件 · 0 个脚本 · MIT
+wandb/wandb-mcp-server                     W&amp;B 官方 · MIT
+ndpvt-web/latex-document-skill             197 个文件 · 35 个脚本 · 无许可证
+…（另 2 个省略）</pre></div>
+            </div>
+
+            <div class="msg assistant"><div class="text">这个项目需要 4 类能力：<b>实验运行与监控</b>、<b>文献检索</b>、<b>论文写作与编译</b>、<b>结果作图</b>。
+
+已安装的 Skills 覆盖了大部分，缺的是：查询 W&amp;B 实验记录的工具，以及更细的 ML 论文写作规范。
+
+另外有 117 个 Skills 跟这个项目无关（前端、PPT、专利……），建议在本项目里关闭。Skill 太多时，列给 Claude 的描述会被截短，容易选错，也更占上下文。
+
+下面是推荐清单，勾选后点「应用」：</div></div>
+
+            <div class="rec" id="recCard">
+              <div class="rec-head"><svg class="ic"><use href="#i-listcheck"/></svg>推荐清单 · proj</div>
+
+              <div class="rec-sec">已安装 · 本项目要用的（点一下取消）</div>
+              <div class="chips" id="recKeep">
+                <button class="tchip on">run-experiment</button><button class="tchip on">monitor-experiment</button><button class="tchip on">analyze-results</button><button class="tchip on">research-lit</button><button class="tchip on">arxiv</button><button class="tchip on">paper-write</button><button class="tchip on">paper-compile</button><button class="tchip on">paper-figure</button><button class="tchip on">citation-audit</button>
+              </div>
+
+              <div class="rec-sec">新发现 · 建议安装</div>
+              <div class="cand">
+                <input type="checkbox" checked data-new="research-paper-writing" data-kind="skill" data-files="43">
+                <div class="cand-main">
+                  <div class="cand-title"><b>research-paper-writing</b><span class="kind">Skill</span><span class="repo">Master-cai/Research-Paper-Writing-Skills</span></div>
+                  <div class="cand-desc">ML/CV/NLP 论文写作规范（整理自彭思达老师的公开笔记），按章节给写法，补充已有的 paper-write</div>
+                  <div class="badges"><span>★ 8.2k</span><span>MIT</span><span class="good">无脚本</span><span>4 个月前更新</span></div>
+                </div>
+                <button class="link sm" data-proto="预览 SKILL.md 全文和 43 个文件的清单">查看</button>
+              </div>
+              <div class="cand">
+                <input type="checkbox" checked data-new="wandb" data-kind="mcp">
+                <div class="cand-main">
+                  <div class="cand-title"><b>wandb</b><span class="kind">MCP 工具</span><span class="repo">wandb/wandb-mcp-server</span></div>
+                  <div class="cand-desc">直接查询 W&amp;B 里的实验曲线和指标（requirements.txt 里用了 wandb）；需要 W&amp;B API Key</div>
+                  <div class="badges"><span class="official">W&amp;B 官方</span><span>★ 72</span><span>MIT</span><span>2 天前更新</span></div>
+                </div>
+                <button class="link sm" data-proto="预览 README 和它提供的工具列表">查看</button>
+              </div>
+              <div class="cand">
+                <input type="checkbox" checked data-new="paper-writing-skill" data-kind="skill" data-files="35">
+                <div class="cand-main">
+                  <div class="cand-title"><b>paper-writing-skill</b><span class="kind">Skill</span><span class="repo">SNL-UCSB/paper-writing-skill</span></div>
+                  <div class="cand-desc">五步写作流程，加独立的红队审稿，适合投稿前打磨</div>
+                  <div class="badges"><span>★ 249</span><span>MIT</span><span class="good">无脚本</span><span>3 天前更新</span></div>
+                </div>
+                <button class="link sm" data-proto="预览 SKILL.md 全文和 35 个文件的清单">查看</button>
+              </div>
+              <div class="cand off">
+                <input type="checkbox" data-new="latex-document-skill" data-kind="skill" data-files="197" data-warn="35">
+                <div class="cand-main">
+                  <div class="cand-title"><b>latex-document-skill</b><span class="kind">Skill</span><span class="repo">ndpvt-web/latex-document-skill</span></div>
+                  <div class="cand-desc">LaTeX 模板和编译脚本。和已安装的 paper-compile 功能重叠；含脚本，装之前需要你先审查</div>
+                  <div class="badges"><span>★ 822</span><span class="warn">无许可证</span><span class="warn">含 35 个脚本</span><span>今天更新</span></div>
+                </div>
+                <button class="link sm" data-proto="列出 35 个脚本，可以逐个打开审查">查看</button>
+              </div>
+
+              <div class="rec-sec">与本项目无关 · 在本项目关闭</div>
+              <div class="cand">
+                <input type="checkbox" checked id="recClose">
+                <div class="cand-main">
+                  <div class="cand-title"><b>关闭 117 个 Skills</b></div>
+                  <div class="cand-desc">frontend-design、pptx、patent-review、vue-expert、grant-proposal、slack-gif-creator……只写进本项目的设置，其他项目不受影响</div>
+                </div>
+                <button class="link sm" data-proto="展开 117 个 Skills，可以逐个取消">展开</button>
+              </div>
+
+              <div class="rec-foot">
+                <div class="rec-note">已过滤 19 个候选：没有许可证、长期不更新或 star 太少。新 Skill 装到 proj/.claude/skills/，只对这个项目生效；关闭不会删除任何文件。</div>
+                <div class="ap-actions"><button class="btn primary" id="recApply">应用所选</button><button class="btn ghost" id="recSkip">都不要</button></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 对话三：web-app，在 worktree 里并行运行 -->
+          <div class="col" data-thread="wt" id="colWt" hidden>
+            <div class="day">今天 16:20</div>
+            <div class="mode-note wt"><svg class="ic"><use href="#i-layers"/></svg><span>这个对话在独立的 worktree <code>lumen/fix-login-k3</code> 里改代码，不影响本地 web-app 目录里的文件，可以和其他对话同时跑。改完点顶部的 <b>接手到本地</b>，把改动合到本地分支。</span></div>
+            <div class="msg user"><div class="bubble">登录页在窄屏下「登录」按钮错位，修一下，改完跑一下 e2e 测试。</div></div>
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-file"/></svg><span class="verb">已读取 2 个文件</span><span class="obj">src/pages/Login.tsx, src/pages/Login.css</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">41  .login .actions {
+42    width: 360px;
+43    display: flex;
+44  }</pre></div>
+            </div>
+            <div class="msg assistant"><div class="text">问题在 <code>.login .actions</code> 写死了 360px 宽，窄屏下会溢出。改成最大宽度 360px，并允许换行。</div></div>
+            <div class="act open">
+              <div class="act-head"><svg class="ic sm"><use href="#i-pen"/></svg><span class="verb">已编辑</span><span class="obj">src/pages/Login.css</span><span class="meta"><span class="add">+3</span> <span class="del">−1</span></span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><div class="box" data-diff="wt-css"></div></div>
+            </div>
+            <div class="act">
+              <div class="act-head"><svg class="ic sm"><use href="#i-term"/></svg><span class="verb shimmer">正在运行</span><span class="obj">pnpm test:e2e -- login</span><svg class="ic chev"><use href="#i-right"/></svg></div>
+              <div class="act-body"><pre class="out">Running 6 tests using 3 workers
+  ✓ login › 宽屏布局 (1.2s)
+  ✓ login › 窄屏 375px 按钮不溢出 (1.4s)
+  … 运行中</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======================= 输入框 ======================= -->
+        <div class="composer-wrap">
+          <div class="composer" id="composer">
+            <div id="popup"></div>
+            <textarea id="input" rows="1" placeholder="给 Claude 发消息，@ 引用文件，/ 打开命令和 Skills"></textarea>
+            <div class="cbar">
+              <button class="chip" id="attachBtn" title="添加图片或文件（也可以直接粘贴截图）"><svg class="ic"><use href="#i-plus"/></svg></button>
+              <span class="sp"></span>
+              <div class="dd rel">
+                <span class="pin" style="top:-12px;left:-8px">6</span>
+                <button class="chip" id="modelBtn"><span id="modelLabel"></span><svg class="ic sm"><use href="#i-down"/></svg></button>
+                <div class="pop" id="modelPop">
+                  <div class="pop-sec">模型</div>
+                  <button class="opt" data-model="opus"><span class="opt-main">Opus 5.5</span><span class="opt-desc">最强，较慢较贵</span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                  <button class="opt" data-model="sonnet"><span class="opt-main">Sonnet 5.5</span><span class="opt-desc">均衡</span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                  <button class="opt" data-model="haiku"><span class="opt-main">Haiku 5.5</span><span class="opt-desc">最快最省</span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                  <div class="pop-sec">思考强度</div>
+                  <div class="seg" id="effortSeg"><button data-effort="low">低</button><button data-effort="medium">中</button><button data-effort="high">高</button><button data-effort="xhigh">超高</button><button data-effort="max">最大</button></div>
+                  <div class="pop-sec">速度</div>
+                  <div class="seg" id="speedSeg"><button data-fast="0">标准</button><button data-fast="1">⚡ 快速</button></div>
+                  <div class="pop-note" id="speedNote"></div>
+                  <div class="pop-foot">切换从下一条消息开始生效 · 每个项目记住上次的选择</div>
+                </div>
+              </div>
+              <div class="dd">
+                <button class="ring" id="usageBtn" title="上下文用量">
+                  <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--border-strong)" stroke-width="2"/><circle cx="9" cy="9" r="7" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="16.7 44" stroke-linecap="round" transform="rotate(-90 9 9)"/></svg>38%
+                </button>
+                <div class="pop small" id="usagePop">
+                  <div class="pop-sec">上下文</div>
+                  <div class="kv"><span>已用</span><span>38%</span></div>
+                  <div class="bar"><i></i></div>
+                  <div class="kv"><span>本次对话输入</span><span>9.8k tokens</span></div>
+                  <div class="kv"><span>本次对话输出</span><span>2.6k tokens</span></div>
+                  <div class="kv"><span>缓存命中</span><span>61%</span></div>
+                  <div class="pop-foot">走中转 API，费用以中转平台的账单为准。快满时会提示你用 /compact 压缩。</div>
+                </div>
+              </div>
+              <button class="send" id="sendBtn" title="发送（Enter）"><svg class="ic"><use id="sendUse" href="#i-up"/></svg></button>
+            </div>
+          </div>
+          <div class="under">
+            <div class="dd rel">
+              <span class="pin" style="top:-12px;left:-12px">5</span>
+              <button class="mchip" id="modeBtn"><svg class="ic sm"><use id="modeUse" href="#i-shield"/></svg><span id="modeLabel">默认：询问</span><svg class="ic sm"><use href="#i-down"/></svg></button>
+              <div class="menu" id="modeMenu">
+                <div class="menu-sec">Claude Code 自带</div>
+                <button class="mitem" data-mode="default"><svg class="ic"><use href="#i-shield"/></svg><span class="mi"><b>默认：询问</b><span>读文件直接执行；改文件、运行命令前先问你</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <button class="mitem" data-mode="acceptEdits"><svg class="ic"><use href="#i-filecheck"/></svg><span class="mi"><b>自动接受编辑</b><span>改文件不再询问，运行命令仍会问</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <button class="mitem" data-mode="plan"><svg class="ic"><use href="#i-plan"/></svg><span class="mi"><b>计划模式</b><span>只调研和出方案，不改文件、不运行命令</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <button class="mitem danger" data-mode="bypass"><svg class="ic"><use href="#i-unlock"/></svg><span class="mi"><b>完全访问</b><span>所有操作直接执行，不再询问（高危操作仍会拦截）</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <div class="menu-sep"></div>
+                <div class="menu-sec">自定义</div>
+                <button class="mitem env" data-mode="envsetup"><svg class="ic"><use href="#i-wrench"/></svg><span class="mi"><b>Skills 配置</b><span>按项目需求挑选 Skills 和工具：盘点已有的、上 GitHub 找新的，你确认后再安装</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <div class="menu-foot">Shift+Tab 依次切换<span class="sp"></span><button class="link" data-open-rules>Skills 配置模式的规则</button></div>
+              </div>
+            </div>
+            <div class="dd rel">
+              <span class="pin" style="top:-12px;left:-8px">8</span>
+              <button class="uchip" id="placeBtn" title="在哪里改代码"><svg class="ic sm"><use id="placeUse" href="#i-local"/></svg><span id="placeLabel">本地</span><svg class="ic sm"><use href="#i-down"/></svg></button>
+              <div class="menu" id="placeMenu">
+                <div class="menu-sec">在哪里改代码</div>
+                <button class="mitem" data-place="local"><svg class="ic"><use href="#i-local"/></svg><span class="mi"><b>本地</b><span>直接改项目目录里的文件</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <button class="mitem" data-place="worktree"><svg class="ic"><use href="#i-layers"/></svg><span class="mi"><b>新 worktree</b><span>在独立的工作区里改，可以和其他对话同时跑；改完再接手到本地</span></span><svg class="ic sm tick"><use href="#i-check"/></svg></button>
+                <div class="menu-foot" id="placeFoot"></div>
+              </div>
+            </div>
+            <button class="uchip" id="branchBtn" title="Git 分支"><svg class="ic sm"><use href="#i-branch"/></svg><span id="branchLabel">main</span></button>
+            <span class="sp"></span>
+            <span class="uhint">Enter 发送 · Shift+Enter 换行</span>
+          </div>
+        </div>
+        <div class="term" id="term" hidden>
+          <div class="term-head"><svg class="ic sm"><use href="#i-term"/></svg><span id="termTitle"></span><span class="sp"></span><button class="ibtn" id="termClose" title="关闭终端"><svg class="ic sm"><use href="#i-x"/></svg></button></div>
+          <div class="term-body" id="termBody">
+            <div class="term-out" id="termOut"></div>
+            <div class="term-in"><span id="termPrompt"></span><input id="termInput" spellcheck="false" autocomplete="off"></div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ======================= 改动面板（Git 审查和提交） ======================= -->
+      <aside class="review rel" id="review">
+        <span class="pin" style="top:12px;right:44px">7</span>
+        <div class="rev-top">
+          <div class="seg rev-seg" id="revScope"><button data-scope="turn">上一轮</button><button data-scope="unstaged">未暂存</button><button data-scope="staged">已暂存</button><button data-scope="branch">整个分支</button></div>
+          <span class="sp"></span>
+          <button class="ibtn" id="btnRevClose" title="关闭面板"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="rev-sub" id="revHead"></div>
+        <div class="rev-body" id="revBody"></div>
+        <div class="commit" id="commitBox">
+          <textarea id="commitMsg" rows="2" placeholder="提交说明（留空让 Claude 来写）"></textarea>
+          <div class="commit-row">
+            <span class="commit-info" id="commitInfo"></span>
+            <span class="sp"></span>
+            <div class="dd">
+              <div class="split-btn"><button class="btn primary sm" id="commitBtn">提交</button><button class="btn primary sm" id="commitMore" title="更多提交方式"><svg class="ic sm"><use href="#i-down"/></svg></button></div>
+              <div class="menu right" id="commitMenu">
+                <button class="simple" data-commit="commit">提交</button>
+                <button class="simple" data-commit="push">提交并推送</button>
+                <button class="simple" data-commit="pr">提交并开 PR</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ======================= 自动化 ======================= -->
+    <div class="autoview" id="autoView" hidden>
+      <div class="av-inner">
+        <div class="av-head"><h1>自动化</h1><span class="sp"></span><button class="btn primary" id="btnNewAuto"><svg class="ic sm"><use href="#i-plus"/></svg>新建自动化</button></div>
+        <p class="av-sub">按计划让 Claude 自动跑任务。每次运行都在新的 worktree 里，不碰你本地的文件；跑完的结果进审查队列。App 要在后台运行（关掉窗口会缩到托盘）才能按时执行。</p>
+        <div class="av-sec">审查队列 <span class="cnt" id="queueCnt">2</span></div>
+        <div id="queue">
+          <div class="qitem">
+            <div class="q-ic ok"><svg class="ic sm"><use href="#i-check"/></svg></div>
+            <div class="q-main"><b>每日实验汇总</b><span>proj · 今天 08:00 · 已完成：汇总了 3 组实验，写了 reports/2026-11-09.md，画了 2 张对比图</span></div>
+            <button class="btn sm" data-q-open>查看</button><button class="btn sm ghost" data-q-done>标为已读</button>
+          </div>
+          <div class="qitem">
+            <div class="q-ic wait"><svg class="ic sm"><use href="#i-pause"/></svg></div>
+            <div class="q-main"><b>依赖安全检查</b><span>web-app · 今天 09:00 · 已暂停：想运行 <code>pnpm update axios</code>，需要你审批</span></div>
+            <button class="btn sm primary" data-q-open>去处理</button><button class="btn sm ghost" data-q-done>忽略</button>
+          </div>
+        </div>
+        <div class="q-empty" id="queueEmpty" hidden>审查队列是空的。</div>
+        <div class="av-sec">全部自动化</div>
+        <table class="tbl" id="autoTbl">
+          <tr><th>名称</th><th>项目</th><th>什么时候跑</th><th>模式</th><th>上次运行</th><th>启用</th></tr>
+          <tr><td><b>每日实验汇总</b><div class="td-sub">汇总昨晚的实验结果，画对比图，写日报</div></td><td>proj</td><td>每天 08:00</td><td>自动接受编辑</td><td><span class="st ok">今天 08:00</span></td><td><button class="mini-sw on"></button></td></tr>
+          <tr><td><b>依赖安全检查</b><div class="td-sub">检查有没有带漏洞的依赖，给出升级方案</div></td><td>web-app</td><td>每周一 09:00</td><td>默认：询问</td><td><span class="st warn">等待审批</span></td><td><button class="mini-sw on"></button></td></tr>
+          <tr><td><b>新论文速递</b><div class="td-sub">按研究方向搜 arXiv 新论文，挑 5 篇写摘要</div></td><td>proj</td><td>每个工作日 07:30</td><td>计划模式</td><td><span class="st ok">今天 07:30</span></td><td><button class="mini-sw on"></button></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 弹窗：原型说明 ======================= -->
+<div class="overlay" id="guideOv">
+  <div class="modal">
+    <h2>界面原型 · 第 4 版</h2>
+    <p>这一版加上了你选的 4 个 Codex 功能（标 <span class="new">新</span>），自定义模式改名为 <b>Skills 配置</b>。原型<b>不连接 Claude</b>，能点的地方都可以点。示例里的 GitHub 仓库是真实存在的，对话是虚构的。</p>
+    <ol class="guide-list">
+      <li><span><b>左栏</b>：按项目分组的对话。<b>proj → 为项目挑选 Skills 和工具</b> 是 Skills 配置模式的完整示例</span></li>
+      <li><span><b>活动记录</b>：读文件、跑命令都只占一行，点开看详情</span></li>
+      <li><span><b>代码改动</b>：红色是删掉的行，绿色是新增的行</span></li>
+      <li><span><b>审批框</b>：试试「允许一次 / 总是允许 / 拒绝」</span></li>
+      <li><span><b>模式菜单</b>：Claude Code 自带 4 个 + 自定义的 Skills 配置；Shift+Tab 切换</span></li>
+      <li><span><b>模型选择器</b>：模型、思考强度、速度</span></li>
+      <li><span><b>Git 审查和提交</b>：按范围看改动；鼠标移到某一行点 <b>+</b> 写评论发给 Claude；暂存、撤销、提交、推送、开 PR <span class="new">新</span></span></li>
+      <li><span><b>Worktree</b>：点「新对话」，在输入框下方选「新 worktree」，这个对话就在独立的工作区里跑。<b>web-app → 修复登录页样式错位</b> 正在 worktree 里并行运行 <span class="new">新</span></span></li>
+      <li><span><b>内置终端</b>：顶部的「终端」按钮，或按 Ctrl+` <span class="new">新</span></span></li>
+      <li><span><b>自动化</b>：左栏的「自动化」，可以看审查队列、新建定时任务 <span class="new">新</span></span></li>
+    </ol>
+    <p>黄色数字可以用左下角的 ● 按钮关掉，旁边的 ☾ 切换深色 / 浅色。</p>
+    <div class="mfoot"><button class="btn primary" data-close>开始看</button></div>
+  </div>
+</div>
+
+<!-- ======================= 弹窗：新建自动化 ======================= -->
+<div class="overlay" id="autoOv">
+  <div class="modal">
+    <h2><svg class="ic"><use href="#i-clock"/></svg>新建自动化</h2>
+    <div class="form">
+      <label>名称<input id="autoName" placeholder="比如：每日实验汇总"></label>
+      <label>项目<select id="autoProj"><option>proj</option><option>web-app</option><option>claude_code_lm</option></select></label>
+      <label class="full">要 Claude 做什么<textarea id="autoPrompt" rows="3" placeholder="比如：汇总 runs/ 里昨晚跑完的实验，和基线对比，画一张曲线图，写一份简短的日报"></textarea></label>
+      <label>什么时候跑<select id="autoWhen"><option>每天</option><option>每个工作日</option><option>每周一</option><option>每小时</option></select></label>
+      <label>时间<input id="autoTime" value="08:00"></label>
+      <label>在哪里跑<select id="autoPlace"><option>新 worktree（推荐）</option><option>本地</option></select></label>
+      <label>权限模式<select id="autoMode"><option>默认：询问</option><option>自动接受编辑</option><option>计划模式</option><option>完全访问</option><option>Skills 配置</option></select></label>
+    </div>
+    <p class="form-note">没人看着的时候，遇到需要审批的操作，这次运行会暂停，进审查队列等你处理。</p>
+    <div class="mfoot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn" id="autoTry">先试跑一次</button>
+      <button class="btn primary" id="autoSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 弹窗：完全访问确认 ======================= -->
+<div class="overlay" id="faOv">
+  <div class="modal">
+    <h2><svg class="ic"><use href="#i-unlock"/></svg>切换到完全访问？</h2>
+    <p>切换后，Claude 改文件、运行命令都<b>直接执行，不再询问</b>。只对当前对话生效；想让新对话默认用这个模式，可以在设置里改。</p>
+    <div class="warnbox">下面这些高危操作仍然会被拦截（名单可以在设置里改）：
+      <ul>
+        <li>删除盘根目录或用户目录（如 <code>rm -rf C:\</code>）</li>
+        <li><code>git push --force</code></li>
+        <li><code>format</code> 格式化磁盘</li>
+        <li>删除 <code>~/.claude</code></li>
+      </ul>
+    </div>
+    <div class="mfoot">
+      <label><input type="checkbox" id="faNoAsk"> 不再提示</label>
+      <button class="btn" data-close>取消</button>
+      <button class="btn red" id="faConfirm">切换到完全访问</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 弹窗：管理（M3） ======================= -->
+<div class="overlay" id="manageOv">
+  <div class="modal wide">
+    <div class="mhead">
+      <div class="mtabs">
+        <button class="mtab active" data-m="skills">Skills</button>
+        <button class="mtab" data-m="mcp">MCP 服务器</button>
+        <button class="mtab" data-m="settings">设置</button>
+      </div>
+      <span class="ms" style="margin-bottom:6px">M3 阶段</span>
+      <button class="ibtn" data-close style="margin-bottom:6px"><svg class="ic"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="mbody">
+      <div class="mpane active" id="m-skills">
+        <div class="split">
+          <div class="slist">
+            <div class="search"><svg class="ic sm"><use href="#i-search"/></svg><input placeholder="搜索 Skills…"></div>
+            <button class="btn sm" style="width:100%;justify-content:center;margin:0 0 8px" data-proto="从模板新建一个 Skill">＋ 新建 Skill</button>
+            <div class="skill active" data-name="research-lit" data-desc="检索并分析相关论文，找相关工作，总结关键思路"><div class="sn">research-lit <span class="src">用户</span></div><div class="sd">检索并分析相关论文，找相关工作</div></div>
+            <div class="skill" data-name="paper-write" data-desc="按大纲逐节写 LaTeX 论文"><div class="sn">paper-write <span class="src">用户</span></div><div class="sd">按大纲逐节写 LaTeX 论文</div></div>
+            <div class="skill" data-name="arxiv" data-desc="搜索、下载并总结 arXiv 论文"><div class="sn">arxiv <span class="src">用户</span></div><div class="sd">搜索、下载并总结 arXiv 论文</div></div>
+            <div class="skill" data-name="release-check" data-desc="发布前检查版本号、更新日志和构建产物"><div class="sn">release-check <span class="src">项目</span></div><div class="sd">发布前检查版本号和构建产物</div></div>
+            <div class="skill" data-name="frontend-design" data-desc="做出有设计感的前端界面" data-ro="1"><div class="sn">frontend-design <span class="src">插件 · 只读</span></div><div class="sd">做出有设计感的前端界面</div></div>
+            <div class="skill" data-name="docx" data-desc="创建和编辑 Word 文档" data-ro="1"><div class="sn">docx <span class="src">插件 · 只读</span></div><div class="sd">创建和编辑 Word 文档</div></div>
+          </div>
+          <div class="sedit">
+            <div class="sbar"><span class="mono">SKILL.md</span><span class="okc">✓ frontmatter 格式正确</span><span class="ro" id="skillRO" hidden>只读（插件自带）</span><span class="sp"></span><button class="btn sm" data-proto="在新对话里试运行这个 Skill">在新对话中试运行</button><button class="btn sm primary" data-proto="保存 SKILL.md">保存</button></div>
+<pre class="editor"><span class="c-mut">---</span>
+<span class="c-key">name</span>: <span id="skillName">research-lit</span>
+<span class="c-key">description</span>: <span id="skillDesc">检索并分析相关论文，找相关工作，总结关键思路</span>
+<span class="c-mut">---</span>
+
+<span class="c-h"># 步骤</span>
+
+1. 根据用户给的研究方向生成 3–5 组检索词
+2. 依次查询 arXiv、Semantic Scholar
+3. 去重后按相关度排序，输出表格：标题 / 年份 / 一句话贡献
+4. 最后给出 3 条可以继续深挖的方向
+
+<span class="c-mut">（真实 App 里这里是 Monaco 编辑器，和 VS Code 同一个内核）</span></pre>
+          </div>
+        </div>
+      </div>
+      <div class="mpane" id="m-mcp">
+        <div class="mpad">
+          <div class="mtop"><span style="color:var(--muted)">按用户级、项目级（.mcp.json）、本地级列出。增删改通过 <code>claude mcp add / remove</code> 完成。</span><span class="sp"></span><button class="btn primary sm" data-proto="添加 MCP 服务器（stdio / HTTP / SSE 表单）">＋ 添加服务器</button></div>
+          <table class="tbl">
+            <tr><th>名称</th><th>类型</th><th>范围</th><th>状态</th><th>工具数</th><th></th></tr>
+            <tr><td class="mono">codex</td><td>stdio</td><td>用户级</td><td><span class="st ok">已连接</span></td><td>2</td><td><button class="btn sm" data-proto="编辑 MCP 服务器">编辑</button></td></tr>
+            <tr><td class="mono">github</td><td>HTTP</td><td>项目级</td><td><span class="st warn">需要登录</span></td><td>—</td><td><button class="btn sm" data-proto="打开浏览器完成 OAuth 登录">登录</button></td></tr>
+            <tr><td class="mono">filesystem</td><td>stdio</td><td>本地级</td><td><span class="st bad">连接失败</span></td><td>—</td><td><button class="btn sm" data-proto="查看 MCP 启动日志">查看日志</button></td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="mpane" id="m-settings">
+        <div class="mpad">
+          <div class="sec">常规</div>
+          <div class="row"><div class="lbl">默认模型</div><div class="val"><span class="sel">Opus 5.5 ▾</span></div></div>
+          <div class="row"><div class="lbl">默认思考强度</div><div class="val"><span class="sel">超高 ▾</span></div></div>
+          <div class="row"><div class="lbl">主题</div><div class="val"><span class="sel">跟随系统 ▾</span></div></div>
+          <div class="sec">权限与模式</div>
+          <div class="row"><div class="lbl">新对话的默认模式</div><div class="val"><span class="sel">默认：询问 ▾</span></div></div>
+          <div class="sec">Skills 配置模式</div>
+          <div class="row"><div class="lbl">规则</div><div class="val"><button class="btn sm" data-open-rules>查看 / 编辑规则</button></div></div>
+          <div class="row"><div class="lbl">搜索来源</div><div class="val"><span class="rule">GitHub</span><span class="rule">Skills 目录网站</span><span class="rule">已添加的插件市场</span><button class="btn sm" data-proto="添加搜索来源">＋</button></div></div>
+          <div class="row"><div class="lbl">新 Skill 默认装到</div><div class="val"><span class="sel">项目级 .claude/skills/ ▾</span></div></div>
+          <div class="row"><div class="lbl">GitHub Token<small>可选；不填每分钟只能搜 10 次</small></div><div class="val"><span style="color:var(--faint)">未设置</span><button class="btn sm" data-proto="填写 GitHub Token（只需要公开仓库的只读权限）">设置</button></div></div>
+          <div class="row"><div class="lbl">总是允许（白名单）</div><div class="val"><span class="rule">Skill(update-config)</span><span class="rule">Bash(pnpm test *)</span><button class="btn sm" data-proto="添加白名单规则">＋</button></div></div>
+          <div class="row"><div class="lbl">保底黑名单<small>任何模式下都拦截</small></div><div class="val"><span class="rule bad">rm -rf 盘根/用户目录</span><span class="rule bad">git push --force</span><span class="rule bad">format</span><span class="rule bad">删除 ~/.claude</span></div></div>
+          <div class="sec">中转 API（环境变量）</div>
+          <div class="row"><div class="lbl mono">ANTHROPIC_BASE_URL</div><div class="val mono">https://your-relay.example.com/</div></div>
+          <div class="row"><div class="lbl mono">ANTHROPIC_AUTH_TOKEN</div><div class="val"><span class="mono">sk-••••••••••••••••</span><button class="btn sm" id="tokReveal">显示</button></div></div>
+          <div class="mnote">保存时写入 ~/.claude/settings.json，只改动过的字段，其他内容原样保留。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 弹窗：Skills 配置模式规则（放在最后，叠在其他弹窗上面） ======================= -->
+<div class="overlay" id="rulesOv">
+  <div class="modal rules-modal">
+    <h2><svg class="ic" style="color:var(--env)"><use href="#i-wrench"/></svg>Skills 配置模式 <span class="ms">自定义</span></h2>
+    <p>按项目需求挑选合适的 <b>Skills 和工具（MCP）</b>。Claude 按这个顺序做：<b>了解项目</b>（读 README、依赖和你的描述）→ <b>盘点</b>已安装的 Skills 和工具 → 上 <b>GitHub 和 Skills 目录</b>搜索缺的 → 给出<b>推荐清单</b>让你勾选 → 安装、保留、关闭 → 记进 CLAUDE.md。</p>
+    <div class="rules">
+      <div class="r-ok"><h4><svg class="ic sm"><use href="#i-check"/></svg>直接执行</h4><ul>
+        <li>读取项目文件</li>
+        <li>列出已安装的 Skills、插件和 MCP 服务器</li>
+        <li>在 GitHub、Skills 目录、插件市场搜索</li>
+        <li>读取候选的 SKILL.md 和文件清单（只看，不运行）</li>
+      </ul></div>
+      <div class="r-ask"><h4><svg class="ic sm"><use href="#i-ask"/></svg>在推荐清单里确认</h4><ul>
+        <li>安装新 Skill（装到项目的 .claude/skills/）</li>
+        <li>添加 MCP 服务器（项目级 .mcp.json）</li>
+        <li>在本项目保留或关闭 Skills、插件（写 .claude/settings.json）</li>
+        <li>含脚本的 Skill：先列出脚本给你审查</li>
+        <li>装到用户级（对所有项目生效）：单独确认</li>
+      </ul></div>
+      <div class="r-no"><h4><svg class="ic sm"><use href="#i-ban"/></svg>一律拦截</h4><ul>
+        <li>运行下载来的 Skill 里的脚本</li>
+        <li>改源代码、装依赖等其他操作（请切到别的模式）</li>
+        <li>保底黑名单里的高危操作</li>
+      </ul></div>
+    </div>
+    <p style="font-size:12.5px">候选的筛选标准：有许可证、一年内有更新、star 数不太低，官方出品的优先。搜索来源和筛选标准都可以在 设置 → 权限与模式 里改。</p>
+    <div class="mfoot">
+      <button class="btn" data-close>关闭</button>
+      <button class="btn teal" id="rulesUse">使用这个模式</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const md = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const icon = (id, cls = 'ic sm') => `<svg class="${cls}"><use href="#${id}"/></svg>`;
+
+  /* ---------------- 示例数据 ---------------- */
+  const DIFFS = {
+    'web-utils': [
+      [' ', 11, 11, '/** 把日期格式化成本地字符串 */'],
+      [' ', 12, 12, 'export function formatDate('],
+      ['-', 13, null, '  date: Date'],
+      ['+', null, 13, '  date: Date,'],
+      ['+', null, 14, '  timeZone?: string'],
+      [' ', 14, 15, '): string {'],
+      ['-', 15, null, "  return date.toLocaleString('zh-CN');"],
+      ['+', null, 16, "  return date.toLocaleString('zh-CN', {"],
+      ['+', null, 17, '    timeZone: timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,'],
+      ['+', null, 18, '  });'],
+      [' ', 16, 19, '}']
+    ],
+    'skills-settings': [
+      [' ', 1, 1, '{'],
+      ['+', null, 2, '  "skillOverrides": {'],
+      ['+', null, 3, '    "frontend-design": "off",'],
+      ['+', null, 4, '    "pptx": "off",'],
+      ['+', null, 5, '    "patent-review": "off",'],
+      ['+', null, 6, '    "vue-expert": "off",'],
+      ['+', null, 7, '    …'],
+      ['+', null, 8, '  },'],
+      [' ', 2, 9, '  "permissions": { … }'],
+      [' ', 3, 10, '}']
+    ],
+    'skills-mcp': [
+      ['+', null, 1, '{'],
+      ['+', null, 2, '  "mcpServers": {'],
+      ['+', null, 3, '    "wandb": {'],
+      ['+', null, 4, '      "command": "uvx",'],
+      ['+', null, 5, '      "args": ["--from", "git+https://github.com/wandb/wandb-mcp-server", "wandb_mcp_server"],'],
+      ['+', null, 6, '      "env": { "WANDB_API_KEY": "${WANDB_API_KEY}" }'],
+      ['+', null, 7, '    }'],
+      ['+', null, 8, '  }'],
+      ['+', null, 9, '}']
+    ],
+    'skills-claudemd': [
+      [' ', 20, 20, ''],
+      ['+', null, 21, '## 本项目的 Skills 和工具（Skills 配置模式生成，2026-11-09）'],
+      ['+', null, 22, ''],
+      ['+', null, 23, '- 实验：run-experiment、monitor-experiment、analyze-results；W&B 用 wandb MCP 查'],
+      ['+', null, 24, '- 文献：research-lit、arxiv、citation-audit'],
+      ['+', null, 25, '- 写作：paper-write、research-paper-writing、paper-writing-skill、paper-compile'],
+      ['+', null, 26, '- 作图：paper-figure'],
+      ['+', null, 27, '- 其他与本项目无关的 Skills 已在 .claude/settings.json 里关闭'],
+      ['+', null, 28, '']
+    ]
+  };
+  DIFFS['wt-css'] = [
+    [' ', 41, 41, '.login .actions {'],
+    ['-', 42, null, '  width: 360px;'],
+    ['+', null, 42, '  width: 100%;'],
+    ['+', null, 43, '  max-width: 360px;'],
+    ['+', null, 44, '  flex-wrap: wrap;'],
+    [' ', 43, 45, '  display: flex;'],
+    [' ', 44, 46, '}']
+  ];
+  const PROJ_PATH = { 'web-app': 'D:\\demo\\web-app', proj: 'D:\\research\\proj', claude_code_lm: 'D:\\claude_code_lm' };
+  const THREADS = {
+    web: { title: '给 formatDate 加时区参数', project: 'web-app', mode: 'default', place: 'local', branch: 'main', files: [{ name: 'src/utils.ts', add: 5, del: 2, diff: 'web-utils' }] },
+    env: { title: '为项目挑选 Skills 和工具', project: 'proj', mode: 'envsetup', place: 'local', branch: 'main', files: [] },
+    wt: { title: '修复登录页样式错位', project: 'web-app', mode: 'acceptEdits', place: 'worktree', branch: 'lumen/fix-login-k3', wtPath: 'D:\\demo\\.lumen\\worktrees\\fix-login-k3', files: [{ name: 'src/pages/Login.css', add: 3, del: 1, diff: 'wt-css' }] }
+  };
+  const AUTO_MSG = { web: 'feat(utils): formatDate 支持指定时区', env: 'chore: 为项目配置 Skills 和 MCP 工具', wt: 'fix(login): 窄屏下登录按钮不再溢出' };
+  const TEST_OUT = [
+    ' RUN  v3.2.4  D:/demo/web-app', '',
+    ' ✓ src/utils.test.ts (12 tests) 38ms',
+    '   ✓ formatDate > 输出 zh-CN 格式',
+    '   ✓ formatDate > 处理无效日期',
+    '   ✓ parseQuery > 空字符串返回空对象',
+    '   ✓ parseQuery > 解码中文参数',
+    '   …（其余 8 个省略）', '',
+    ' Test Files  1 passed (1)',
+    '      Tests  12 passed (12)',
+    '   Duration  1.82s'
+  ].join('\n');
+  const SLASH = [
+    { k: '/compact', d: '压缩上下文，腾出空间', g: '命令' },
+    { k: '/clear', d: '清空当前对话，重新开始', g: '命令' },
+    { k: '/skills-setup', d: '切到 Skills 配置模式，为本项目挑选 Skills 和工具', g: '命令' },
+    { k: '/plan', d: '切到计划模式：先出方案，不改文件', g: '命令' },
+    { k: '/model', d: '切换模型', g: '命令' },
+    { k: '/review', d: '审查当前的代码改动', g: '命令' },
+    { k: '/research-lit', d: '检索并分析相关论文', g: 'Skills' },
+    { k: '/paper-write', d: '按大纲逐节写 LaTeX 论文', g: 'Skills' },
+    { k: '/arxiv', d: '搜索、下载 arXiv 论文', g: 'Skills' },
+    { k: '/code-review', d: '按严重程度审查代码', g: 'Skills' }
+  ];
+  const FILES = ['src/utils.ts', 'src/utils.test.ts', 'src/App.tsx', 'src/api/client.ts', 'package.json', 'README.md'];
+  const MODELS = { opus: { name: 'Opus 5.5', fast: true }, sonnet: { name: 'Sonnet 5.5', fast: false }, haiku: { name: 'Haiku 5.5', fast: false } };
+  const EFFORTS = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' };
+  const MODES = {
+    default: { label: '默认：询问', icon: 'i-shield', toast: '已切换到「默认：询问」：改文件、运行命令前先问你' },
+    acceptEdits: { label: '自动接受编辑', icon: 'i-filecheck', toast: '已切换到「自动接受编辑」：改文件不再询问，运行命令仍会问' },
+    plan: { label: '计划模式', icon: 'i-plan', toast: '已切换到「计划模式」：只出方案，不改文件、不运行命令' },
+    bypass: { label: '完全访问', icon: 'i-unlock', toast: '已切换到「完全访问」：所有操作直接执行（高危操作仍会拦截）' },
+    envsetup: { label: 'Skills 配置', icon: 'i-wrench', toast: '已切换到「Skills 配置」：按项目需求挑选 Skills 和工具，安装前会让你确认' }
+  };
+  const MODE_ORDER = ['default', 'acceptEdits', 'plan', 'bypass', 'envsetup'];
+
+  const state = {
+    thread: 'web', mode: 'default', skipConfirm: false, envSeen: false,
+    model: 'opus', effort: 'high', fast: true, stream: null, pending: true,
+    scope: 'turn', view: 'chat', newCount: 0
+  };
+  const thread = $('#thread'), input = $('#input'), sendBtn = $('#sendBtn'), popup = $('#popup');
+  const curCol = () => $(`.col[data-thread="${state.thread}"]`);
+
+  /* ---------------- 通用 ---------------- */
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    $('#toasts').appendChild(t);
+    setTimeout(() => t.classList.add('out'), 2800);
+    setTimeout(() => t.remove(), 3200);
+  }
+  const scrollBottom = () => { thread.scrollTop = thread.scrollHeight; };
+  const openOv = id => $(id).classList.add('show');
+  const closeOv = id => $(id).classList.remove('show');
+  $$('.overlay').forEach(ov => ov.addEventListener('click', e => {
+    if (e.target === ov || e.target.closest('[data-close]')) ov.classList.remove('show');
+  }));
+  document.addEventListener('click', e => {
+    const p = e.target.closest('[data-proto]');
+    if (p) toast('原型：' + p.dataset.proto);
+    if (e.target.closest('[data-open-rules]')) { closePops(); openRules(false); }
+  });
+
+  // f 传进来时表示在改动面板里：每行可以评论，并显示已有的评论
+  function diffHTML(key, f) {
+    const comments = (f && f.comments) || [];
+    return '<div class="diff">' + DIFFS[key].map(([t, o, n, txt], i) => {
+      const cls = t === '+' ? 'add' : t === '-' ? 'del' : '';
+      let h = `<div class="dl ${cls}" data-i="${i}">${f ? '<button class="cbtn" title="评论这一行，让 Claude 改">+</button>' : ''}<span class="ln">${o ?? ''}</span><span class="ln">${n ?? ''}</span><span class="sg">${t === ' ' ? '' : t}</span><span class="code">${esc(txt)}</span></div>`;
+      comments.filter(c => c.row === i).forEach(c => {
+        h += `<div class="cnote">${icon('i-comment')}<span>${esc(c.text)}<small>已发给 Claude</small></span></div>`;
+      });
+      return h;
+    }).join('') + '</div>';
+  }
+  $$('[data-diff]').forEach(el => { el.innerHTML = diffHTML(el.dataset.diff); });
+
+  /* ---------------- 改动面板：Git 审查和提交 ---------------- */
+  const liveFiles = t => t.files.filter(f => !f.gone);
+  function renderReview() {
+    const t = THREADS[state.thread];
+    const live = liveFiles(t);
+    const add = live.reduce((a, f) => a + f.add, 0), del = live.reduce((a, f) => a + f.del, 0);
+    $('#diffStat').innerHTML = `<span class="add">+${add}</span> <span class="del">−${del}</span>`;
+    $$('#revScope [data-scope]').forEach(b => b.classList.toggle('on', b.dataset.scope === state.scope));
+    const files = live.filter(f => state.scope === 'staged' ? f.staged : state.scope === 'unstaged' ? !f.staged : true);
+    const desc = {
+      turn: 'Claude 上一轮回复里改的文件',
+      unstaged: '还没暂存的改动',
+      staged: '已暂存、准备提交的改动',
+      branch: t.place === 'worktree' ? `${t.branch} 相对 main 的全部改动` : '当前分支上还没推送的全部改动'
+    }[state.scope];
+    $('#revHead').textContent = `${desc} · ${files.length} 个文件`;
+    $('#revBody').innerHTML = files.length ? files.map(f => {
+      const idx = t.files.indexOf(f);
+      const head = `<div class="rfile-head">${icon(f.dir ? 'i-folder' : 'i-file')}<span class="fn">${esc(f.name)}</span>` +
+        (f.staged ? '<span class="stg">已暂存</span>' : '') +
+        `<span class="acts"><button data-act="stage">${f.staged ? '取消暂存' : '暂存'}</button><button data-act="revert">撤销</button></span>` +
+        (f.dir ? `<span class="add">新增 ${f.add} 个文件</span>` : `<span class="add">+${f.add}</span><span class="del">−${f.del}</span>`) + '</div>';
+      return `<div class="rfile${f.staged ? ' staged' : ''}" data-f="${idx}">${head}${f.dir ? '' : diffHTML(f.diff, f)}</div>`;
+    }).join('') : `<div class="empty">${live.length ? '这个范围里没有文件。' : '没有未提交的改动。'}</div>`;
+    const staged = live.filter(f => f.staged).length;
+    $('#commitInfo').textContent = live.length ? `提交到 ${t.branch}（${staged ? '已暂存的 ' + staged : '全部 ' + live.length} 个文件）` : '没有可以提交的改动';
+    $('#commitBtn').disabled = $('#commitMore').disabled = !live.length;
+  }
+  $$('#revScope [data-scope]').forEach(b => { b.onclick = () => { state.scope = b.dataset.scope; renderReview(); }; });
+  $('#revBody').addEventListener('click', e => {
+    const t = THREADS[state.thread];
+    const fileEl = e.target.closest('.rfile');
+    if (!fileEl) return;
+    const f = t.files[Number(fileEl.dataset.f)];
+    const act = e.target.closest('[data-act]');
+    if (act) {
+      if (act.dataset.act === 'stage') { f.staged = !f.staged; toast(f.staged ? `已暂存 ${f.name}` : `已取消暂存 ${f.name}`); }
+      else { f.gone = true; toast(`已撤销 ${f.name} 的改动（原型）`); }
+      renderReview();
+      return;
+    }
+    const cb = e.target.closest('.cbtn');
+    if (cb) {
+      const dl = cb.closest('.dl');
+      if (dl.nextElementSibling && dl.nextElementSibling.classList.contains('cbox')) return;
+      const box = document.createElement('div');
+      box.className = 'cbox';
+      box.innerHTML = '<textarea rows="2" placeholder="写下要 Claude 怎么改"></textarea><div class="row2"><button class="btn sm ghost" data-c="cancel">取消</button><button class="btn sm primary" data-c="send">发给 Claude</button></div>';
+      dl.after(box);
+      box.querySelector('textarea').focus();
+      return;
+    }
+    const cbtn = e.target.closest('[data-c]');
+    if (!cbtn) return;
+    const box = cbtn.closest('.cbox');
+    if (cbtn.dataset.c === 'cancel') { box.remove(); return; }
+    const text = box.querySelector('textarea').value.trim();
+    if (!text) { toast('先写评论内容'); return; }
+    const row = Number(box.previousElementSibling.dataset.i);
+    (f.comments = f.comments || []).push({ row, text });
+    renderReview();
+    const line = DIFFS[f.diff][row];
+    if (state.stream) finishStream(state.stream, true);
+    addUser(`【评论】${f.name} 第 ${line[2] ?? line[1]} 行：${text}`);
+    streamInto(addAssistant(), `（原型）Claude 会按这条评论修改 \`${f.name}\` 第 ${line[2] ?? line[1]} 行附近的代码，改完的 Diff 会出现在右边的改动面板里。`);
+  });
+  function doCommit(kind) {
+    const t = THREADS[state.thread];
+    const live = liveFiles(t);
+    if (!live.length) { toast('没有可以提交的改动'); return; }
+    const staged = live.filter(f => f.staged);
+    const picked = staged.length ? staged : live;
+    const msg = $('#commitMsg').value.trim() || AUTO_MSG[state.thread] || 'chore: 更新';
+    picked.forEach(f => { f.gone = true; f.staged = false; });
+    $('#commitMsg').value = '';
+    const hash = Math.random().toString(16).slice(2, 9);
+    const what = kind === 'push' ? `已提交并推送到 origin/${t.branch}` : kind === 'pr' ? '已提交、推送，并开了 PR' : `已提交到 ${t.branch}`;
+    const note = document.createElement('div');
+    note.className = 'ap-done';
+    note.innerHTML = icon('i-check') + `${what}：<code>${esc(msg)}</code> · ${picked.length} 个文件 · ${hash}`;
+    curCol().appendChild(note);
+    scrollBottom();
+    toast(kind === 'pr' ? '原型：开 PR 要先在设置里填 GitHub Token（本机没装 gh）' : `${what}（原型）`);
+    renderReview();
+  }
+  $('#commitBtn').onclick = () => doCommit('commit');
+  $('#commitMore').onclick = () => togglePop('#commitMenu');
+  $$('#commitMenu [data-commit]').forEach(b => { b.onclick = () => { closePops(); doCommit(b.dataset.commit); }; });
+
+  /* ---------------- 左栏与顶栏 ---------------- */
+  $('#btnTheme').onclick = () => {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+  };
+  $('#btnPins').onclick = e => {
+    const hidden = document.body.classList.toggle('hide-pins');
+    e.currentTarget.classList.toggle('on', !hidden);
+  };
+  $('#btnGuide').onclick = () => openOv('#guideOv');
+  const toggleReview = () => {
+    const closed = $('#content').classList.toggle('no-review');
+    $('#btnReview').classList.toggle('on', !closed);
+  };
+  $('#btnReview').onclick = toggleReview;
+  $('#btnRevClose').onclick = toggleReview;
+  $('#btnNew').onclick = () => newThread();
+  $('#btnSearch').onclick = () => toast('原型：搜索全部对话（M2 阶段）');
+  $('#branchBtn').onclick = () => toast('原型：切换 Git 分支');
+  $('#btnHandoff').onclick = () => toast(`原型：把 ${THREADS[state.thread].branch} 的改动合到本地 main，并清理这个 worktree`);
+  $('#btnAuto').onclick = () => showAuto();
+  $('#attachBtn').onclick = () => toast('原型：添加图片或文件，也可以直接粘贴截图');
+  $$('.proj-head').forEach(h => { h.onclick = () => h.parentElement.classList.toggle('open'); });
+  $$('.sess').forEach(s => {
+    s.onclick = () => {
+      if (s.dataset.thread) showThread(s.dataset.thread);
+      else toast('原型：打开这段历史对话，可以接着聊（M2 阶段）');
+    };
+  });
+  $$('[data-manage]').forEach(b => { b.onclick = () => { showManage(b.dataset.manage); openOv('#manageOv'); }; });
+
+  function refreshHeader() {
+    const t = THREADS[state.thread];
+    $('#hdrTitle').textContent = t.title;
+    $('#hdrProj').textContent = t.project;
+    const wt = t.place === 'worktree' && !t.fresh;
+    $('#wtChip').hidden = !wt;
+    $('#wtName').textContent = t.branch;
+    $('#btnHandoff').hidden = !wt;
+    $('#branchLabel').textContent = t.branch;
+    renderPlace();
+    renderReview();
+    if (!$('#term').hidden) renderTerm();
+  }
+  function showThread(key) {
+    if (state.stream) finishStream(state.stream, true);
+    hideAuto();
+    state.thread = key;
+    $$('.col').forEach(c => { c.hidden = c.dataset.thread !== key; });
+    $$('.sess').forEach(s => s.classList.toggle('active', s.dataset.thread === key));
+    refreshHeader();
+    setMode(THREADS[key].mode, true);
+    hidePopup();
+    scrollBottom();
+  }
+
+  /* ---------------- Worktree 与新对话 ---------------- */
+  function renderPlace() {
+    const t = THREADS[state.thread];
+    $('#placeLabel').textContent = t.place === 'worktree' ? 'Worktree' : '本地';
+    $('#placeUse').setAttribute('href', t.place === 'worktree' ? '#i-layers' : '#i-local');
+    $$('#placeMenu [data-place]').forEach(b => b.classList.toggle('on', b.dataset.place === t.place));
+    $('#placeFoot').textContent = t.fresh ? '选 worktree 的话，发第一条消息时自动创建' : '已经开始的对话不能换位置；新对话才能选';
+  }
+  $('#placeBtn').onclick = () => togglePop('#placeMenu');
+  $$('#placeMenu [data-place]').forEach(b => {
+    b.onclick = () => {
+      const t = THREADS[state.thread];
+      closePops();
+      if (!t.fresh) { toast('已经开始的对话不能换位置。点左上角「新对话」再选'); return; }
+      t.place = b.dataset.place;
+      renderPlace();
+      toast(t.place === 'worktree' ? '这个对话会在新的 worktree 里运行，可以和其他对话同时跑' : '这个对话会直接改本地项目目录');
+    };
+  });
+  const heroHTML = p => `<div class="hero"><div class="hero-t">要在 <b>${esc(p)}</b> 里做什么？</div><div class="hero-s">在输入框下方选权限模式，以及在<b>本地</b>还是<b>新 worktree</b> 里改代码。选 worktree 的话，这个对话可以和其他对话同时跑。</div></div>`;
+  function newThread() {
+    const open = Object.keys(THREADS).find(k => THREADS[k].fresh);
+    if (open) { showThread(open); input.focus(); return; }
+    const key = 'n' + (++state.newCount);
+    THREADS[key] = { title: '新对话', project: 'web-app', mode: 'default', place: 'local', branch: 'main', files: [], fresh: true };
+    const col = document.createElement('div');
+    col.className = 'col';
+    col.dataset.thread = key;
+    col.hidden = true;
+    col.innerHTML = heroHTML('web-app');
+    thread.appendChild(col);
+    const s = document.createElement('div');
+    s.className = 'sess';
+    s.dataset.thread = key;
+    s.innerHTML = '<span class="t">新对话</span><span class="when">刚刚</span>';
+    s.onclick = () => showThread(key);
+    $('#projWeb .proj-head').after(s);
+    showThread(key);
+    input.focus();
+  }
+  function startThread(t, firstMsg) {
+    t.fresh = false;
+    curCol().innerHTML = '<div class="day">今天 刚刚</div>';
+    t.title = firstMsg.length > 16 ? firstMsg.slice(0, 16) + '…' : firstMsg;
+    if (t.place === 'worktree') {
+      const slug = 'task-' + Math.random().toString(36).slice(2, 6);
+      t.branch = 'lumen/' + slug;
+      t.wtPath = 'D:\\demo\\.lumen\\worktrees\\' + slug;
+    }
+    t.termLog = null;
+    $(`.sess[data-thread="${state.thread}"]`).innerHTML = `<span class="t">${esc(t.title)}</span>` +
+      (t.place === 'worktree' ? icon('i-layers', 'ic sm wt-ic') : '') + '<span class="when">刚刚</span>';
+    refreshHeader();
+  }
+
+  /* ---------------- 内置终端 ---------------- */
+  const termPath = () => { const t = THREADS[state.thread]; return t.wtPath || PROJ_PATH[t.project]; };
+  function renderTerm() {
+    const t = THREADS[state.thread], p = termPath();
+    $('#termTitle').textContent = `pwsh · ${p}`;
+    $('#termPrompt').textContent = `PS ${p}>`;
+    if (!t.termLog) {
+      t.termLog = [`PS ${p}> git status --short`].concat(liveFiles(t).map(f => (f.dir ? '?? ' : ' M ') + f.name));
+      if (t.termLog.length === 1) t.termLog.push('（没有改动）');
+    }
+    $('#termOut').innerHTML = t.termLog.map(l => `<div>${esc(l)}</div>`).join('');
+    $('#termBody').scrollTop = $('#termBody').scrollHeight;
+  }
+  function toggleTerm(force) {
+    const show = force ?? $('#term').hidden;
+    $('#term').hidden = !show;
+    $('#btnTerm').classList.toggle('on', show);
+    if (show) { renderTerm(); $('#termInput').focus(); }
+  }
+  $('#btnTerm').onclick = () => toggleTerm();
+  $('#termClose').onclick = () => toggleTerm(false);
+  $('#termBody').onclick = () => $('#termInput').focus();
+  $('#termInput').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const v = e.target.value;
+    e.target.value = '';
+    const t = THREADS[state.thread];
+    t.termLog.push(`PS ${termPath()}> ${v}`);
+    if (v.trim()) t.termLog.push('（原型：真实 App 里这是完整的 PowerShell 终端，命令在这个对话的目录里运行）');
+    renderTerm();
+  });
+
+  /* ---------------- 自动化 ---------------- */
+  function showAuto() {
+    if (state.stream) finishStream(state.stream, true);
+    state.view = 'auto';
+    $('#content').hidden = true;
+    $('#autoView').hidden = false;
+    $('#topActions').hidden = true;
+    $('#modePill').hidden = true;
+    $('#wtChip').hidden = true;
+    $('#hdrTitle').textContent = '自动化';
+    $('#hdrProj').textContent = '';
+    $$('.sess').forEach(s => s.classList.remove('active'));
+    $('#btnAuto').classList.add('active');
+  }
+  function hideAuto() {
+    if (state.view !== 'auto') return;
+    state.view = 'chat';
+    $('#content').hidden = false;
+    $('#autoView').hidden = true;
+    $('#topActions').hidden = false;
+    $('#btnAuto').classList.remove('active');
+  }
+  function updateQueue() {
+    const n = $$('#queue .qitem').length;
+    $('#queueCnt').textContent = n;
+    $('#autoBadge').textContent = n;
+    $('#autoBadge').hidden = !n;
+    $('#queueEmpty').hidden = !!n;
+  }
+  $('#queue').addEventListener('click', e => {
+    const item = e.target.closest('.qitem');
+    if (!item) return;
+    if (e.target.closest('[data-q-open]')) toast('原型：打开这次运行的对话（在它自己的 worktree 里），可以看结果、审批或接着聊');
+    else if (e.target.closest('[data-q-done]')) { item.remove(); updateQueue(); }
+  });
+  $('#btnNewAuto').onclick = () => { $('#autoName').value = ''; $('#autoPrompt').value = ''; openOv('#autoOv'); };
+  $('#autoTry').onclick = () => toast('原型：马上在新 worktree 里试跑一次，跑完进审查队列');
+  $('#autoSave').onclick = () => {
+    const name = $('#autoName').value.trim(), prompt = $('#autoPrompt').value.trim();
+    if (!name || !prompt) { toast('名称和要做的事都要填'); return; }
+    const when = $('#autoWhen').value === '每小时' ? '每小时' : `${$('#autoWhen').value} ${$('#autoTime').value}`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><b>${esc(name)}</b><div class="td-sub">${esc(prompt.length > 30 ? prompt.slice(0, 30) + '…' : prompt)}</div></td>` +
+      `<td>${esc($('#autoProj').value)}</td><td>${esc(when)}</td><td>${esc($('#autoMode').value)}</td>` +
+      '<td><span style="color:var(--faint)">还没运行</span></td><td><button class="mini-sw on"></button></td>';
+    $('#autoTbl tbody').appendChild(tr);
+    closeOv('#autoOv');
+    toast(`已保存自动化「${name}」：${when}`);
+  };
+  $('#autoTbl').addEventListener('click', e => {
+    const sw = e.target.closest('.mini-sw');
+    if (!sw) return;
+    sw.classList.toggle('on');
+    toast(sw.classList.contains('on') ? '已启用，会按计划运行' : '已暂停，不会再按计划运行');
+  });
+
+  /* ---------------- 对话 ---------------- */
+  thread.addEventListener('click', e => {
+    const head = e.target.closest('.act-head');
+    if (head) head.parentElement.classList.toggle('open');
+  });
+  function addUser(text) {
+    const m = document.createElement('div');
+    m.className = 'msg user';
+    m.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+    curCol().appendChild(m);
+    scrollBottom();
+  }
+  function addAssistant() {
+    const m = document.createElement('div');
+    m.className = 'msg assistant';
+    const t = document.createElement('div');
+    t.className = 'text';
+    m.appendChild(t);
+    curCol().appendChild(m);
+    scrollBottom();
+    return t;
+  }
+  function setStreaming(on) {
+    $('#sendUse').setAttribute('href', on ? '#i-stop' : '#i-up');
+    sendBtn.title = on ? '停止（Esc）' : '发送（Enter）';
+    updateSend();
+  }
+  function updateSend() { sendBtn.disabled = !state.stream && !input.value.trim(); }
+  function streamInto(el, text, onDone) {
+    const st = { el, text, i: 0, timer: null, onDone };
+    state.stream = st;
+    setStreaming(true);
+    el.innerHTML = '<span class="thinking">思考中</span>';
+    scrollBottom();
+    st.timer = setTimeout(() => {
+      st.timer = setInterval(() => {
+        st.i = Math.min(text.length, st.i + 2);
+        el.innerHTML = md(text.slice(0, st.i)) + '<span class="caret"></span>';
+        scrollBottom();
+        if (st.i >= text.length) finishStream(st, false);
+      }, 24);
+    }, 750);
+  }
+  function finishStream(st, stopped) {
+    clearTimeout(st.timer);
+    clearInterval(st.timer);
+    st.el.innerHTML = md(st.text.slice(0, st.i)) + (stopped ? '<span class="stopped">（已停止）</span>' : '');
+    state.stream = null;
+    setStreaming(false);
+    if (!stopped && st.onDone) st.onDone();
+  }
+  function send() {
+    const v = input.value.trim();
+    if (!v || state.stream) return;
+    if (state.pending && state.thread === 'web') { toast('请先处理上面的审批框'); return; }
+    const t = THREADS[state.thread];
+    const fresh = t.fresh;
+    if (fresh) startThread(t, v);
+    addUser(v);
+    if (fresh && t.place === 'worktree') {
+      const row = document.createElement('div');
+      row.className = 'act';
+      row.innerHTML = `<div class="act-head">${icon('i-layers')}<span class="verb">已创建 worktree</span><span class="obj">${esc(t.branch)}</span><span class="meta">从 main 分支 · ${esc(t.wtPath)}</span></div>`;
+      curCol().appendChild(row);
+    }
+    input.value = '';
+    autosize();
+    hidePopup();
+    const cmd = v.split(/\s/)[0];
+    let reply;
+    if (cmd === '/skills-setup') {
+      selectMode('envsetup');
+      reply = '（原型）已切到 Skills 配置模式。真实 App 里，Claude 会先了解项目需求，盘点已安装的 Skills 和工具，再上 GitHub 和 Skills 目录找缺的，最后给你一份推荐清单勾选。完整过程可以看左栏 proj → 为项目挑选 Skills 和工具。';
+    } else if (v.startsWith('/')) {
+      reply = `（原型）这里会执行 \`${cmd}\`。真实 App 里，命令和 Skill 的执行过程会显示成上面那样一行一行的活动记录。`;
+    } else {
+      reply = '（原型演示）这里会显示 Claude 的真实回复：文字逐字出现，读文件、改代码、跑命令都显示成一行活动记录，点开看详情。\n\n' +
+        `这条消息使用 **${$('#modelLabel').textContent}**，模式是「${MODES[state.mode].label}」。\n\n生成过程中可以点右下角的 ■ 或按 Esc 停止。`;
+    }
+    streamInto(addAssistant(), reply);
+  }
+
+  /* ---------------- 审批 ---------------- */
+  const apCard = $('#approval');
+  apCard.addEventListener('click', e => {
+    const b = e.target.closest('button[data-ap]');
+    if (!b) return;
+    const a = b.dataset.ap;
+    if (a === 'deny') { $('#denyBox').classList.add('show'); $('#denyReason').focus(); }
+    else if (a === 'denySend') resolveApproval('deny', $('#denyReason').value.trim());
+    else resolveApproval(a);
+  });
+  $('#denyReason').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) resolveApproval('deny', e.target.value.trim());
+  });
+  function setTodo(i, cls) {
+    const items = $$('#webPlan li');
+    items[i].className = cls;
+    $('#planCnt').textContent = `${items.filter(li => li.classList.contains('done')).length}/${items.length}`;
+  }
+  function resolveApproval(kind, reason) {
+    if (!state.pending) return;
+    state.pending = false;
+    const note = document.createElement('div');
+    if (kind === 'deny') {
+      note.className = 'ap-done deny';
+      note.innerHTML = icon('i-x') + '你拒绝了 <code>pnpm test -- utils</code>' + (reason ? '：' + esc(reason) : '');
+      apCard.replaceWith(note);
+      setTodo(2, '');
+      if (state.thread === 'web') streamInto(addAssistant(), '好的，这次不运行测试。改动已经写进 `src/utils.ts`，你可以稍后自己运行 `pnpm test -- utils` 确认。还需要我调整什么吗？');
+      return;
+    }
+    note.className = 'ap-done';
+    note.innerHTML = icon('i-check') + (kind === 'auto' ? '完全访问已开启，自动允许' : kind === 'always' ? '总是允许 Bash(pnpm test *)，已写入白名单' : '你允许了一次');
+    const row = document.createElement('div');
+    row.className = 'act';
+    row.innerHTML = `<div class="act-head">${icon('i-term')}<span class="verb shimmer">正在运行</span><span class="obj">pnpm test -- utils</span><span class="meta"></span>${icon('i-right', 'ic chev')}</div>` +
+      `<div class="act-body"><pre class="out">${esc(TEST_OUT)}</pre></div>`;
+    apCard.replaceWith(note);
+    note.after(row);
+    if (kind === 'always') toast('已写入权限白名单：Bash(pnpm test *)');
+    scrollBottom();
+    setTimeout(() => {
+      const verb = row.querySelector('.verb');
+      verb.classList.remove('shimmer');
+      verb.textContent = '已运行';
+      row.querySelector('.meta').innerHTML = '<span class="okc">✓</span> 12 个通过 · 1.8 秒';
+      setTodo(2, 'done');
+      if (state.thread !== 'web') return;
+      streamInto(addAssistant(),
+        '测试全部通过（12 个）。\n\n这次只改了 `src/utils.ts` 一处：`formatDate` 新增可选参数 `timeZone`，不传时和原来一样使用本地时区，现有调用不受影响。\n\n要不要我再补一个指定时区（比如 `Asia/Tokyo`）的测试用例？');
+    }, 1500);
+  }
+
+  /* ---------------- Skills 配置模式：推荐清单 ---------------- */
+  const rec = $('#recCard');
+  const OFF_TOTAL = 117;
+  function recCounts() {
+    const keep = $$('#recKeep .tchip.on').length;
+    const keepTotal = $$('#recKeep .tchip').length;
+    const news = $$('#recCard input[data-new]').filter(i => i.checked);
+    const close = ($('#recClose').checked ? OFF_TOTAL : 0) + (keepTotal - keep);
+    return { keep, news, close };
+  }
+  function renderRec() {
+    const c = recCounts();
+    $('#recApply').textContent = `应用所选（安装 ${c.news.length} · 保留 ${c.keep} · 关闭 ${c.close}）`;
+    $('#recApply').disabled = !c.news.length && !c.close;
+  }
+  rec.addEventListener('click', e => {
+    if (state.recDone || e.target.closest('.link, .ap-actions')) return;
+    const chip = e.target.closest('.tchip');
+    if (chip) { chip.classList.toggle('on'); renderRec(); return; }
+    const cand = e.target.closest('.cand');
+    if (!cand) return;
+    const box = cand.querySelector('input');
+    if (e.target !== box) box.checked = !box.checked;
+    cand.classList.toggle('off', !box.checked);
+    if (box.checked && box.dataset.warn) toast(`这个 Skill 含 ${box.dataset.warn} 个脚本：应用时会先把脚本列出来，你逐个看过才安装`);
+    renderRec();
+  });
+  $('#recApply').onclick = applyRec;
+  $('#recSkip').onclick = () => {
+    if (state.recDone) return;
+    state.recDone = true;
+    rec.classList.add('done');
+    const note = document.createElement('div');
+    note.className = 'ap-done deny';
+    note.innerHTML = icon('i-x') + '你没有应用推荐清单，什么都没改';
+    rec.after(note);
+    streamInto(addAssistant(), '好的，什么都没改。想调整清单的话直接告诉我，比如「不要 wandb」「再找找画图相关的 Skill」。');
+  };
+
+  function addActRow(after, iconId, running, obj) {
+    const row = document.createElement('div');
+    row.className = 'act';
+    row.innerHTML = `<div class="act-head">${icon(iconId)}<span class="verb shimmer">${running}</span><span class="obj">${esc(obj)}</span><span class="meta"></span>${icon('i-right', 'ic chev')}</div>`;
+    after.after(row);
+    scrollBottom();
+    return row;
+  }
+  function finishActRow(row, verb, metaHTML) {
+    const v = row.querySelector('.verb');
+    v.classList.remove('shimmer');
+    v.textContent = verb;
+    row.querySelector('.meta').innerHTML = metaHTML;
+  }
+
+  function applyRec() {
+    if (state.recDone) return;
+    state.recDone = true;
+    const c = recCounts();
+    const keepNames = $$('#recKeep .tchip.on').map(x => x.textContent);
+    rec.classList.add('done');
+    const note = document.createElement('div');
+    note.className = 'ap-done';
+    note.innerHTML = icon('i-check') + `你确认了推荐清单：安装 ${c.news.length} 项、保留 ${c.keep} 个、关闭 ${c.close} 个`;
+    rec.after(note);
+
+    const steps = [];
+    const files = [];
+    const newSkills = [];
+    let hasMcp = false;
+    c.news.forEach(i => {
+      if (i.dataset.kind === 'mcp') {
+        hasMcp = true;
+        steps.push(['i-term', '正在运行', 'claude mcp add --scope project wandb …', '已运行', '已添加 · 填好 API Key 后连接']);
+        files.push({ name: '.mcp.json', add: 9, del: 0, diff: 'skills-mcp' });
+      } else {
+        newSkills.push(i.dataset.new);
+        const warn = i.dataset.warn ? ` · ${i.dataset.warn} 个脚本已经你审查` : '';
+        steps.push(['i-spark', '正在安装 Skill', `.claude/skills/${i.dataset.new}/`, '已安装 Skill', `${i.dataset.files} 个文件${warn}`]);
+        files.push({ name: `.claude/skills/${i.dataset.new}/`, add: Number(i.dataset.files), del: 0, dir: true });
+      }
+    });
+    if (c.close) {
+      steps.push(['i-pen', '正在编辑', '.claude/settings.json', '已编辑', `<span class="add">+${c.close + 2}</span> · 在本项目关闭 ${c.close} 个 Skills`]);
+      files.push({ name: '.claude/settings.json', add: c.close + 2, del: 0, diff: 'skills-settings' });
+    }
+    steps.push(['i-pen', '正在编辑', 'CLAUDE.md', '已编辑', '<span class="add">+8</span> · 记下本项目用哪些 Skills 和工具']);
+    files.push({ name: 'CLAUDE.md', add: 8, del: 0, diff: 'skills-claudemd' });
+
+    let last = note;
+    const runStep = k => {
+      if (k >= steps.length) return done();
+      const [ic, running, obj, verb, meta] = steps[k];
+      const row = addActRow(last, ic, running, obj);
+      last = row;
+      setTimeout(() => { finishActRow(row, verb, meta); runStep(k + 1); }, 550);
+    };
+    const done = () => {
+      THREADS.env.files = files;
+      if (state.thread === 'env') renderReview();
+      const total = c.keep + newSkills.length;
+      const text = `配好了。这个项目现在用 ${total} 个专用 Skills（${c.keep} 个已有${newSkills.length ? ' + ' + newSkills.length + ' 个新装' : ''}）` +
+        (hasMcp ? '，MCP 工具多了 wandb' : '') + `；无关的 ${c.close} 个 Skills 已在本项目关闭，其他项目不受影响。` +
+        (hasMcp ? '\n\n还差一步：在 设置 → 环境变量 里填上 `WANDB_API_KEY`，wandb 工具才能连上。' : '') +
+        '\n\n新配置从这个项目的下一个对话开始生效。以后想调整，可以再用这个模式，或者在左下角 Skills 里手动改。';
+      if (state.thread !== 'env') return;
+      streamInto(addAssistant(), text, () => {
+        const card = document.createElement('div');
+        card.className = 'report';
+        card.innerHTML = `<div class="report-head">${icon('i-check', 'ic')}本项目的 Skills 和工具</div>` +
+          `<div class="kv"><span>专用 Skills</span><span>${total} 个：${esc(keepNames.concat(newSkills).slice(0, 4).join('、'))}…</span></div>` +
+          `<div class="kv"><span>MCP 工具</span><span>codex${hasMcp ? '、wandb（待填 API Key）' : ''}</span></div>` +
+          `<div class="kv"><span>在本项目关闭</span><span>${c.close} 个 Skills</span></div>` +
+          '<div class="report-foot">这份清单已写进 CLAUDE.md，以后在这个项目里开新对话，Claude 会优先用这些 Skills。</div>';
+        curCol().appendChild(card);
+        scrollBottom();
+      });
+    };
+    runStep(0);
+  }
+
+  /* ---------------- 模式 ---------------- */
+  function setMode(m, silent) {
+    state.mode = m;
+    THREADS[state.thread].mode = m;
+    document.body.classList.remove('mode-bypass', 'mode-envsetup');
+    if (m === 'bypass' || m === 'envsetup') document.body.classList.add('mode-' + m);
+    $('#modeLabel').textContent = MODES[m].label;
+    $('#modeUse').setAttribute('href', '#' + MODES[m].icon);
+    $$('#modeMenu [data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+    const pill = $('#modePill');
+    pill.hidden = !(m === 'bypass' || m === 'envsetup');
+    pill.className = 'mode-pill ' + m;
+    pill.innerHTML = m === 'bypass' ? icon('i-unlock') + '完全访问' : icon('i-wrench') + 'Skills 配置模式';
+    if (!silent) toast(MODES[m].toast);
+    if (m === 'bypass' && state.pending && state.thread === 'web') setTimeout(() => resolveApproval('auto'), 500);
+  }
+  function selectMode(m) {
+    closePops();
+    if (m === state.mode) return;
+    if (m === 'bypass' && !state.skipConfirm) { $('#faNoAsk').checked = false; openOv('#faOv'); return; }
+    if (m === 'envsetup' && !state.envSeen) { state.envSeen = true; openRules(true); return; }
+    setMode(m);
+  }
+  function openRules(asChoice) {
+    $('#rulesUse').hidden = !asChoice;
+    openOv('#rulesOv');
+  }
+  $('#rulesUse').onclick = () => { closeOv('#rulesOv'); state.envSeen = true; setMode('envsetup'); };
+  $('#faConfirm').onclick = () => {
+    if ($('#faNoAsk').checked) state.skipConfirm = true;
+    closeOv('#faOv');
+    setMode('bypass');
+  };
+  $('#modeBtn').onclick = () => togglePop('#modeMenu');
+  $$('#modeMenu [data-mode]').forEach(b => { b.onclick = () => selectMode(b.dataset.mode); });
+  function cycleMode() {
+    const i = MODE_ORDER.indexOf(state.mode);
+    selectMode(MODE_ORDER[(i + 1) % MODE_ORDER.length]);
+  }
+
+  /* ---------------- 弹出菜单 ---------------- */
+  function closePops() { $$('.pop.show, .menu.show').forEach(p => p.classList.remove('show')); }
+  function togglePop(sel) {
+    const p = $(sel);
+    const was = p.classList.contains('show');
+    closePops();
+    if (!was) p.classList.add('show');
+  }
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.dd')) closePops();
+    if (!e.target.closest('#popup') && e.target !== input) hidePopup();
+  });
+  $('#modelBtn').onclick = () => togglePop('#modelPop');
+  $('#usageBtn').onclick = () => togglePop('#usagePop');
+  $$('#modelPop [data-model]').forEach(b => { b.onclick = () => { state.model = b.dataset.model; renderModel(); }; });
+  $$('#effortSeg [data-effort]').forEach(b => { b.onclick = () => { state.effort = b.dataset.effort; renderModel(); }; });
+  $$('#speedSeg [data-fast]').forEach(b => { b.onclick = () => { state.fast = b.dataset.fast === '1'; renderModel(); }; });
+  function renderModel() {
+    const m = MODELS[state.model];
+    const fastOn = state.fast && m.fast;
+    $$('#modelPop [data-model]').forEach(b => b.classList.toggle('on', b.dataset.model === state.model));
+    $$('#effortSeg [data-effort]').forEach(b => b.classList.toggle('on', b.dataset.effort === state.effort));
+    $$('#speedSeg [data-fast]').forEach(b => {
+      b.classList.toggle('on', (b.dataset.fast === '1') === fastOn);
+      if (b.dataset.fast === '1') b.disabled = !m.fast;
+    });
+    $('#speedNote').textContent = m.fast ? '快速模式输出更快，按更高的价格计费' : `${m.name} 不支持快速模式，目前只有 Opus 支持`;
+    $('#modelLabel').textContent = `${m.name} · ${EFFORTS[state.effort]}${fastOn ? ' · ⚡' : ''}`;
+  }
+
+  /* ---------------- 输入框：/ 和 @ ---------------- */
+  let popItems = [], popSel = 0, popCtx = null;
+  function hidePopup() { popup.classList.remove('show'); popCtx = null; }
+  function autosize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+  }
+  function onInputChange() {
+    autosize();
+    updateSend();
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, pos);
+    let m;
+    if ((m = before.match(/^\/(\S*)$/))) {
+      const q = m[1].toLowerCase();
+      const name = x => x.k.slice(1).toLowerCase();
+      popItems = SLASH.filter(x => name(x).startsWith(q));
+      if (!popItems.length) popItems = SLASH.filter(x => name(x).includes(q) || x.d.includes(m[1]));
+      popCtx = { start: 0, end: pos };
+    } else if ((m = before.match(/(^|\s)@(\S*)$/))) {
+      const q = m[2].toLowerCase();
+      popItems = FILES.filter(f => f.toLowerCase().includes(q)).map(f => ({ k: '@' + f, d: '', g: '文件' }));
+      popCtx = { start: pos - m[2].length - 1, end: pos };
+    } else { hidePopup(); return; }
+    if (!popItems.length) { hidePopup(); return; }
+    popSel = 0;
+    renderPopup();
+  }
+  function renderPopup() {
+    let html = '', lastG = '';
+    popItems.forEach((it, i) => {
+      if (it.g !== lastG) { html += `<div class="pg">${esc(it.g)}</div>`; lastG = it.g; }
+      html += `<div class="pi${i === popSel ? ' sel' : ''}" data-i="${i}"><span class="pk">${esc(it.k)}</span><span class="pd">${esc(it.d)}</span></div>`;
+    });
+    popup.innerHTML = html;
+    popup.classList.add('show');
+    const sel = popup.querySelector('.pi.sel');
+    if (sel) sel.scrollIntoView({ block: 'nearest' });
+  }
+  function pickPopup(i) {
+    const it = popItems[i];
+    if (!it || !popCtx) return;
+    const v = input.value;
+    input.value = v.slice(0, popCtx.start) + it.k + ' ' + v.slice(popCtx.end);
+    const p = popCtx.start + it.k.length + 1;
+    hidePopup();
+    input.focus();
+    input.setSelectionRange(p, p);
+    autosize();
+    updateSend();
+  }
+  popup.addEventListener('mousedown', e => {
+    const pi = e.target.closest('.pi');
+    if (pi) { e.preventDefault(); pickPopup(Number(pi.dataset.i)); }
+  });
+  input.addEventListener('input', onInputChange);
+  input.addEventListener('click', onInputChange);
+  input.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (popup.classList.contains('show')) {
+      if (e.key === 'ArrowDown') { popSel = (popSel + 1) % popItems.length; renderPopup(); e.preventDefault(); return; }
+      if (e.key === 'ArrowUp') { popSel = (popSel - 1 + popItems.length) % popItems.length; renderPopup(); e.preventDefault(); return; }
+      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { pickPopup(popSel); e.preventDefault(); return; }
+      if (e.key === 'Escape') { hidePopup(); e.preventDefault(); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  sendBtn.onclick = () => { if (state.stream) finishStream(state.stream, true); else send(); };
+
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.isComposing) return;
+    const ov = $$('.overlay.show').pop();
+    if (e.key === 'Escape') {
+      if (ov) { ov.classList.remove('show'); return; }
+      if (state.stream) { finishStream(state.stream, true); return; }
+      closePops();
+      return;
+    }
+    if (ov) return;
+    if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); return; }
+    if (e.target.id === 'termInput') return;
+    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); return; }
+    if (e.ctrlKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); newThread(); }
+  });
+
+  /* ---------------- 管理弹窗 ---------------- */
+  function showManage(tab) {
+    $$('.mtab').forEach(t => t.classList.toggle('active', t.dataset.m === tab));
+    $$('.mpane').forEach(p => p.classList.toggle('active', p.id === 'm-' + tab));
+  }
+  $$('.mtab').forEach(t => { t.onclick = () => showManage(t.dataset.m); });
+  $$('.skill').forEach(s => {
+    s.onclick = () => {
+      $$('.skill').forEach(x => x.classList.toggle('active', x === s));
+      $('#skillName').textContent = s.dataset.name;
+      $('#skillDesc').textContent = s.dataset.desc;
+      $('#skillRO').hidden = s.dataset.ro !== '1';
+    };
+  });
+  $('#tokReveal').onclick = () => toast('原型：真实 App 里点这里才显示明文，日志里永远不打印');
+
+  /* ---------------- 初始化 ---------------- */
+  renderModel();
+  refreshHeader();
+  renderRec();
+  setMode('default', true);
+  updateSend();
+  scrollBottom();
+  if (!location.hash.includes('noguide')) openOv('#guideOv');
+})();
+</script>
+</body>
+</html>

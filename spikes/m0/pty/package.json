@@ -1,0 +1,11 @@
+{
+  "name": "lumen-m0-pty",
+  "private": true,
+  "type": "module",
+  "description": "M0：验证 node-pty 和 Claude Agent SDK 能在 Electron 主进程里运行",
+  "main": "main.mjs",
+  "dependencies": {
+    "electron": "^45.2.3",
+    "node-pty": "^1.1.0"
+  }
+}

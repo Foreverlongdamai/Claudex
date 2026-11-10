@@ -1,0 +1,13 @@
+# 依赖和构建产物
+node_modules/
+dist/
+out/
+*.log
+
+# 本地密钥
+.env
+.env.*
+
+# M0 验证脚本运行时生成的沙盒项目和截图
+spikes/m0/sandbox/
+spikes/m0/results/*.png
