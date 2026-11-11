@@ -11,3 +11,7 @@ out/
 # M0 验证脚本运行时生成的沙盒项目和截图
 spikes/m0/sandbox/
 spikes/m0/results/*.png
+
+# 端到端测试的临时项目、数据和截图
+tests/e2e/.tmp/
+tests/e2e/.out/

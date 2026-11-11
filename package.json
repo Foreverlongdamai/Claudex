@@ -1,0 +1,38 @@
+{
+  "name": "claudex",
+  "productName": "Claudex",
+  "version": "0.1.0",
+  "description": "本机 Claude Code 的桌面图形界面",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "postinstall": "node scripts/install-electron.mjs",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:unit": "node tests/unit/blacklist.test.ts && node tests/unit/modes.test.ts && node tests/unit/timeline.test.ts",
+    "test:e2e": "electron-vite build && node tests/e2e/run.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.321"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "diff": "^9.0.0",
+    "electron": "45.2.3",
+    "electron-vite": "^6.0.0",
+    "playwright-core": "^1.65.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "zustand": "^5.1.0"
+  }
+}

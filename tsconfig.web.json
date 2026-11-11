@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@shared/*": ["./src/shared/*"],
+      "@/*": ["./src/renderer/src/*"]
+    }
+  },
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/*.d.ts"]
+}
