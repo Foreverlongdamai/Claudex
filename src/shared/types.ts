@@ -35,6 +35,36 @@ export interface BlacklistRule {
   enabled: boolean;
 }
 
+/** 内置终端用的 shell */
+export type ShellKind = 'powershell' | 'gitbash' | 'cmd';
+
+export interface ShellInfo {
+  kind: ShellKind;
+  label: string;
+  path: string | null;
+  available: boolean;
+}
+
+export interface TermInfo {
+  id: string;
+  /** 对话 ID，或者还没发消息的新对话用 project:<路径> */
+  key: string;
+  shell: ShellKind;
+  shellLabel: string;
+  cwd: string;
+  alive: boolean;
+  exitCode?: number;
+  /** 之前的输出（切回这个对话时重新显示） */
+  buffer: string;
+  /** 终端当前的行列数 */
+  cols: number;
+  rows: number;
+}
+
+export type TermEvent =
+  | { kind: 'data'; id: string; data: string }
+  | { kind: 'exit'; id: string; exitCode: number };
+
 export interface Prefs {
   defaultMode: ModeId;
   defaultModel: string;
@@ -47,6 +77,8 @@ export interface Prefs {
   /** 切到完全访问时不再弹确认 */
   skipBypassConfirm: boolean;
   blacklist: BlacklistRule[];
+  /** 内置终端默认用的 shell */
+  terminalShell: ShellKind;
 }
 
 export interface AppState {
@@ -187,4 +219,16 @@ export interface ClaudexApi {
   setTheme(theme: 'dark' | 'light'): Promise<void>;
   openExternal(url: string): Promise<void>;
   onEvent(cb: (ev: ConvEvent) => void): () => void;
+  // ---- 内置终端（C1） ----
+  listShells(): Promise<ShellInfo[]>;
+  /** 打开（或接回）某个对话的终端 */
+  /** size：面板的行列数，新建终端时按它启动（避免启动后马上改大小） */
+  termOpen(key: string, cwd: string, shell: ShellKind, size?: { cols: number; rows: number }): Promise<TermInfo>;
+  termRestart(id: string, shell: ShellKind, size?: { cols: number; rows: number }): Promise<TermInfo>;
+  /** 结束终端进程（连同它启动的子进程） */
+  termKill(id: string): Promise<void>;
+  termRekey(from: string, to: string): Promise<void>;
+  termWrite(id: string, data: string): void;
+  termResize(id: string, cols: number, rows: number): void;
+  onTerm(cb: (ev: TermEvent) => void): () => void;
 }

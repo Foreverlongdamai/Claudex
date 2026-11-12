@@ -331,3 +331,19 @@ pre.out { margin: 0; padding: 10px 14px; font: 12.5px/1.6 var(--mono); backgroun
 /* ---------- 提示条 ---------- */
 .toasts { position: fixed; left: calc(50% + 132px); transform: translateX(-50%); bottom: 150px; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 70; pointer-events: none; }
 .toast { background: var(--primary); color: var(--on-primary); padding: 8px 16px; border-radius: 999px; font-size: 13px; box-shadow: var(--shadow); max-width: 600px; }
+
+/* ---------- 内置终端（C1） ---------- */
+[hidden] { display: none !important; }
+.tbtn { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--border); background: var(--bg); border-radius: 8px; font-size: 12.5px; flex: none; }
+.tbtn:hover { background: var(--hover); }
+.tbtn.on { background: var(--active); border-color: var(--border-strong); }
+.term-panel { flex: none; display: flex; flex-direction: column; border-top: 1px solid var(--border); background: var(--code-bg); position: relative; min-height: 120px; }
+.term-drag { position: absolute; top: -4px; left: 0; right: 0; height: 8px; cursor: row-resize; z-index: 5; }
+.term-head { display: flex; align-items: center; gap: 8px; padding: 3px 8px 3px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); flex: none; }
+.term-head select { border: 0; background: transparent; color: var(--text); font-size: 12px; padding: 2px 4px; border-radius: 6px; outline: 0; }
+.term-head select:hover { background: var(--hover); }
+.term-head select option { background: var(--elev); color: var(--text); }
+.term-cwd { font-family: var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.term-host { flex: 1; min-height: 0; padding: 6px 4px 4px 12px; }
+.term-host .xterm { height: 100%; }
+.term-host .xterm-viewport { background-color: transparent !important; }

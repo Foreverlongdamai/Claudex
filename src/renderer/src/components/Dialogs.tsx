@@ -1,6 +1,6 @@
 // 弹窗：切到完全访问的确认、项目 MCP 服务器批准、添加项目时的信任确认、设置。
-import { useState, type ReactNode } from 'react';
-import { EFFORTS, type Effort, type ModeId } from '@shared/types';
+import { useEffect, useState, type ReactNode } from 'react';
+import { EFFORTS, type Effort, type ModeId, type ShellInfo, type ShellKind } from '@shared/types';
 import { MODES, MODE_ORDER } from '../modes';
 import { useStore } from '../store';
 import { Icon } from './Icon';
@@ -98,6 +98,8 @@ function SettingsDialog() {
   const { setPrefs, closeDialog, setTheme } = useStore.getState();
   const prefs = app.prefs;
   const [bash, setBash] = useState(prefs.gitBashPath ?? '');
+  const [shells, setShells] = useState<ShellInfo[]>([]);
+  useEffect(() => { void window.claudex.listShells().then(setShells); }, []);
   return (
     <Modal wide onClose={closeDialog}>
       <div className="mhead"><h2><Icon name="gear" />设置</h2><span className="sp" /><button className="ibtn" onClick={closeDialog}><Icon name="x" /></button></div>
@@ -141,6 +143,10 @@ function SettingsDialog() {
           </div>
           <small className="hint">改完对新开的对话生效</small>
         </div></div>
+        <div className="row"><div className="lbl">内置终端<small>新开的终端用哪个 shell</small></div><div className="val">
+          <select value={prefs.terminalShell} onChange={e => void setPrefs({ terminalShell: e.target.value as ShellKind })}>
+            {shells.map(s => <option key={s.kind} value={s.kind} disabled={!s.available}>{s.label}{s.available ? '' : '（没找到）'}</option>)}
+          </select></div></div>
         <div className="row"><div className="lbl">同时运行的对话上限<small>每个约占 250 MB 内存</small></div><div className="val">
           <input type="number" min={1} max={16} value={prefs.maxLiveSessions} onChange={e => void setPrefs({ maxLiveSessions: Math.max(1, Math.min(16, Number(e.target.value) || 4)) })} style={{ width: 80 }} /></div></div>
         <div className="row"><div className="lbl">主题</div><div className="val">

@@ -61,7 +61,7 @@ export function Sidebar() {
                 const running = view && (view.status === 'running' || view.status === 'starting');
                 const waiting = view && pendingApprovals(view.timeline) > 0;
                 return (
-                  <div key={c.id} className={`sess${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" onClick={() => void openConversation(c.id)}>
+                  <div key={c.id} className={`sess${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" data-id={c.id} onClick={() => void openConversation(c.id)}>
                     <span className="t">{c.title}</span>
                     {waiting ? <i className="dot wait" title="等你审批" /> : running ? <i className="spin" title="正在运行" /> : view?.status === 'error' ? <i className="dot bad" title="出错了" /> : <span className="when">{when(c.updatedAt)}</span>}
                     <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => { e.stopPropagation(); if (confirm(`删除对话「${c.title}」？\n只从 Claudex 的列表里删除，Claude Code 的会话记录还在。`)) void deleteConversation(c.id); }}><Icon name="x" size={13} /></button>

@@ -34,7 +34,8 @@ function defaultPrefs(): Prefs {
     maxLiveSessions: 4,
     theme: s.theme === 'light' ? 'light' : 'dark',
     skipBypassConfirm: false,
-    blacklist: DEFAULT_BLACKLIST
+    blacklist: DEFAULT_BLACKLIST,
+    terminalShell: 'powershell'
   };
 }
 

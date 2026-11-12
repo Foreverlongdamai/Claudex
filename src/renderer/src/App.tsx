@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Composer } from './components/Composer';
 import { Dialogs } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
+import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
 import { TopBar } from './components/TopBar';
 import { Welcome } from './components/Welcome';
@@ -22,6 +23,13 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const s = useStore.getState();
       if (e.isComposing) return;
+      if (e.ctrlKey && e.code === 'Backquote') {
+        e.preventDefault();
+        if (!s.dialog && s.app?.projects.length) s.toggleTerminal();
+        return;
+      }
+      // 焦点在终端里时，按键都交给终端里的程序
+      if ((e.target as HTMLElement | null)?.closest?.('.term-panel')) return;
       if (e.key === 'Escape') {
         if (s.dialog) { s.closeDialog(); return; }
         const conv = s.activeId ? s.convs[s.activeId] : null;
@@ -52,7 +60,7 @@ export function App() {
       <div className="mainwrap">
         <TopBar />
         <main className="chat">
-          {hasProjects ? <><Thread /><Composer /></> : <Welcome />}
+          {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}
         </main>
       </div>
       <Dialogs />

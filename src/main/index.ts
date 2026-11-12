@@ -2,13 +2,14 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_METHODS, channel, EVENT_CHANNEL } from '../shared/ipc';
+import { API_METHODS, channel, EVENT_CHANNEL, TERM_CHANNEL } from '../shared/ipc';
 import type { ClaudexApi, ConvEvent, EnvInfo } from '../shared/types';
 import { SessionManager } from './claude/manager';
 import { detectGitBash, relayHost, sessionEnv } from './environment';
 import { log } from './log';
 import { checkProject, gitBranch, listFiles, projectMcpServers } from './projects';
 import { Store, samePath } from './store';
+import { TerminalManager, listShells } from './terminal';
 
 // 自动化测试用独立的数据目录，不碰用户真实的数据
 if (process.env.CLAUDEX_USER_DATA) app.setPath('userData', process.env.CLAUDEX_USER_DATA);
@@ -22,6 +23,7 @@ const TITLE_BAR = {
 let win: BrowserWindow | null = null;
 let store: Store;
 let manager: SessionManager;
+let terminals: TerminalManager;
 
 const emit = (ev: ConvEvent) => win?.webContents.send(EVENT_CHANNEL, ev);
 const gitBash = () => detectGitBash(store.state.prefs.gitBashPath);
@@ -69,7 +71,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  const api: Omit<ClaudexApi, 'onEvent'> = {
+  const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'termWrite' | 'termResize'> = {
     getState: async () => store.state,
     getEnv: async (): Promise<EnvInfo> => {
       const gb = gitBash();
@@ -90,13 +92,15 @@ function registerIpc(): void {
     checkProject: async p => checkProject(p),
     addProject: async p => { store.addProject(p); return store.state; },
     removeProject: async p => {
-      for (const c of store.state.conversations.filter(c => samePath(c.projectPath, p))) manager.delete(c.id);
+      const convIds = new Set(store.state.conversations.filter(c => samePath(c.projectPath, p)).map(c => c.id));
+      for (const id of convIds) manager.delete(id);
+      terminals.closeKeys(k => convIds.has(k) || (k.startsWith('project:') && samePath(k.slice(8), p)));
       store.removeProject(p);
       return store.state;
     },
     newConversation: async p => store.newConversation(p),
     openConversation: id => manager.open(id),
-    deleteConversation: async id => { manager.delete(id); store.removeConversation(id); return store.state; },
+    deleteConversation: async id => { manager.delete(id); terminals.closeKeys(k => k === id); store.removeConversation(id); return store.state; },
     send: (id, text, images) => manager.send(id, text, images),
     interrupt: async id => { await manager.interrupt(id); },
     setMode: (id, mode) => manager.setMode(id, mode),
@@ -116,11 +120,19 @@ function registerIpc(): void {
       win?.setTitleBarOverlay({ ...TITLE_BAR[theme], height: 52 });
       win?.setBackgroundColor(TITLE_BAR[theme].color);
     },
-    openExternal: async url => { if (/^https?:/i.test(url)) await shell.openExternal(url); }
+    openExternal: async url => { if (/^https?:/i.test(url)) await shell.openExternal(url); },
+    listShells: async () => listShells(gitBash().path),
+    termOpen: async (key, cwd, sh, size) => terminals.open(key, cwd, sh, size),
+    termRestart: async (id, sh, size) => terminals.restart(id, sh, size),
+    termKill: async id => terminals.close(id),
+    termRekey: async (from, to) => terminals.rekey(from, to)
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
   }
+  // 终端输入和调整大小很频繁，不需要返回值，用 send
+  ipcMain.on(channel('termWrite'), (_e, id: string, data: string) => terminals.write(id, data));
+  ipcMain.on(channel('termResize'), (_e, id: string, cols: number, rows: number) => terminals.resize(id, cols, rows));
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -140,6 +152,7 @@ if (!app.requestSingleInstanceLock()) {
       emit,
       log
     });
+    terminals = new TerminalManager(ev => win?.webContents.send(TERM_CHANNEL, ev), () => gitBash().path, log);
     registerIpc();
     createWindow();
     log(`Claudex ${app.getVersion()} 启动；Git Bash：${gitBash().path ?? '没找到'}`);
@@ -147,6 +160,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => {
     manager?.closeAll();
+    terminals?.closeAll();
     store?.saveNow();
   });
 }

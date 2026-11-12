@@ -170,7 +170,7 @@ SDK 自带一份 Claude Code（M0 时是 2.1.321），也可以用 `pathToClaude
 | **P0 界面原型** | 静态可点击网页（不连 Claude），文件 `prototype/index.html`（单文件、无外部依赖，双击即可打开）。第 4 版包含：Codex 风格三栏、活动记录、审批、5 个模式（含 Skills 配置）、模型选择器、Git 审查和提交、Worktree、内置终端、自动化，以及 M3 的 Skills / MCP / 设置弹窗 | 用户看过并确认布局和交互，或列出修改意见 | ✅ 第 4 版用户认可（2026-11-10） |
 | **M0 技术验证**（约 1 天） | 用最小的 Node 脚本调用 SDK，确认能走中转 API，能加载 Skills 和 MCP，Windows 上的 Git Bash 依赖正常；同时验证第 6 节的待验证点 | 脚本能完成一次读文件加改文件，并且能续接这次会话 | ✅ 完成（2026-11-10）：59 项检查通过 55 项，只有快速模式真的不可用。脚本在 `spikes/m0/`，报告见 [`docs/m0-report.md`](docs/m0-report.md) |
 | **M1 对话核心** | Electron 外壳、流式对话、活动记录、权限审批、停止、5 个模式（含 Skills 配置）、模型选择器 | 能替代命令行完成日常对话 | 🟡 第一步完成（2026-11-11），见下方 M1 进度 |
-| **C1 内置终端** | 每个对话一个终端（xterm.js + node-pty），跟着对话切到对应的项目目录或 worktree | 在 App 里能跑 git、pnpm、python 等命令 | 未开始 |
+| **C1 内置终端** | 每个对话一个终端（xterm.js + node-pty），跟着对话切到对应的项目目录或 worktree | 在 App 里能跑 git、pnpm、python 等命令 | ✅ 完成（2026-11-12），见下方 C1 进度；worktree 部分等 C3 |
 | **C2 Git 审查和提交** | 改动面板按"上一轮 / 未暂存 / 已暂存 / 整个分支"看 Diff；在某一行写评论发给 Claude；暂存、撤销、提交、推送、开 PR（开 PR 需要 GitHub Token，本机没装 `gh`） | 不离开 App 就能审查并提交 Claude 的改动 | 未开始 |
 | **C3 Worktree 并行对话** | 新对话可选"本地 / 新 worktree"；多个对话同时运行；接手到本地、归档、清理 worktree | 两个对话同时改同一个项目，互不干扰 | 未开始 |
 | **C4 自动化** | 定时任务（每天 / 工作日 / 每周 / 每小时）；每次运行开新 worktree；审查队列；需要审批时暂停等用户处理；关窗口缩到托盘后台运行 | 设一个每天的任务，第二天能在审查队列里看到结果 | 未开始 |
@@ -197,6 +197,30 @@ SDK 自带一份 Claude Code（M0 时是 2.1.321），也可以用 `pathToClaude
 - `/`、`@` 菜单、粘贴图片、闲置进程回收、设置页这几项手动验证过界面，还没写进端到端测试
 - 子代理（Agent）只显示步数，不显示内部过程
 
+**C1 进度（2026-11-12 完成）**
+
+已做完（`src/main/terminal.ts`、`src/renderer/src/components/TerminalPanel.tsx`，端到端测试第 17–25 步）：
+- 顶栏「终端」按钮、Ctrl+` 开关；面板在输入框下面，可拖动调高度；每个对话一个终端，切对话时显示各自之前的输出；新对话还没发消息时开的终端，发出第一条消息后跟着转到这个对话
+- PowerShell / Git Bash / 命令提示符 可切换（设置里也能选默认）；进程退出后按任意键重启；重启、结束按钮；Ctrl+V 粘贴，选中文字时 Ctrl+C 复制、没选中时 Ctrl+C 中断
+- 结束终端会连带结束里面跑的程序：taskkill /T 结束进程树；Git Bash 里脱离进程树的程序（msys 程序、被 winpty 包起来的 node 等）靠环境变量 `CLAUDEX_TERM_ID` 从 `/proc` 找出来一起结束
+
+C1 过程中实测发现的问题和处理（验证脚本在 `spikes/c1/`）：
+- **node-pty 1.1.0 两个终端同时退出会让整个进程段错误**（原生代码多线程改同一个列表没加锁）→ 升级到 `node-pty 1.2.0-beta.18`（加了锁，VS Code 也用 beta 版），已锁死版本号
+- 终端退出后 node-pty 不关伪控制台，每个终端留下一个 conhost.exe 直到 App 退出 → 按 spawn 时间窗认出对应的 conhost 并结束它（`reapConsoleHost`）；读输出的 worker 线程和输入管道也手动释放（`releasePty`，用到 node-pty 内部字段）
+- 试过 node-pty 自带的新版 ConPTY（`useConptyDll`）：不漏 conhost，但"上一条命令没结束就接着打字"时约 1/8 概率字符错位（系统版 0/40）→ 不用
+- ConPTY 启动时打开"焦点汇报"，xterm 会往输入里塞 ESC[I / ESC[O，Git Bash 当成按键 → 不让 xterm 打开这个模式
+- 切对话重放历史输出时，xterm 会自动回答历史里的终端查询，回答被当成输入 → 重放期间丢弃 xterm 的回答
+- 重启后旧进程晚到的输出不再混进新终端；切对话时输入框不再被终端抢焦点（第一个字不再丢）
+- **偶发丢字的根因（2026-11-12 查清）：Git Bash 在等输入时被改了终端大小，会吃掉下一个按键**（实测约 1/5；PowerShell 不会；不改大小不会）。新终端原来先按 120×30 启动、面板显示后再改成实际大小，正好撞上 → 改成按面板实际大小启动；大小没变不发；拖动面板时停下来再发。之后连续 7 轮终端测试没再出现
+
+已知限制：
+- Git Bash 里，刚拖动面板或改了窗口大小就马上打字，第一个字偶尔会丢（Git Bash 自身的问题，只能减少改大小的次数）
+- 在后台（没显示出来）的终端里，程序如果向终端发查询（比如问光标位置），要等切到这个对话、终端显示出来才会得到回答
+
+以后要注意：
+- 打包（M4）时 node-pty 的预编译文件在 `node_modules/node-pty/prebuilds/`，要从 asar 里解出来
+- node-pty 用的是 beta 版，而且 `releasePty` 用了它的内部字段；升级版本时要重跑 `spikes/c1/` 的脚本和端到端测试第 17–25 步
+
 ## 6. 风险与待验证点
 
 **风险和约定：**
@@ -213,7 +237,7 @@ SDK 自带一份 Claude Code（M0 时是 2.1.321），也可以用 `pathToClaude
 5. ✅ `canUseTool` 能按规则放行；项目 `skillOverrides` 有效；会话选项 `skills` 也能按会话限定 Skills；`claude mcp add --scope project` 立即生效；结构化输出稳定。⚠ 项目 `.mcp.json` 在 SDK 会话里不经批准就启动，App 要自己把关（用 `disabledMcpjsonServers` 拦，已验证拦得住）。
 6. ✅ 对话中途用 `setPermissionMode()` 在各模式间来回切，立即生效。
 7. ✅ 3 个会话并行、各在一个 worktree 里，互不干扰；每个会话约 250 MB 内存，App 要限制并发数、回收闲置会话。
-8. ✅ node-pty 1.1.0 自带 Windows 预编译版，在 Electron 45 里能开 PowerShell 和 Git Bash，不需要 C++ 编译组件；关终端要先发 exit，不要直接 kill()。
+8. ✅ node-pty 1.1.0 自带 Windows 预编译版，在 Electron 45 里能开 PowerShell 和 Git Bash，不需要 C++ 编译组件；关终端要先发 exit，不要直接 kill()。（C1 补充：1.1.0 多个终端同时退出会崩溃，已换成 1.2.0-beta.18；结束终端改用 taskkill，见第 5 节 C1 进度）
 9. ✅ 审批回调可以一直挂起（实测 50 秒），会话一直等着；等审批时退出 App，之后续接能把事做完。
 10. ✅（新发现）SDK 调起的 Claude Code 自己找不到 Git Bash，要设 `CLAUDE_CODE_GIT_BASH_PATH`，否则只有 PowerShell 工具。
 
@@ -257,6 +281,8 @@ SDK 自带一份 Claude Code（M0 时是 2.1.321），也可以用 `pathToClaude
 | 2026-11-10 | 用户认可原型第 4 版，开始 M0。建了 git 仓库（未提交）；装 Claude Agent SDK 0.3.321，写了 `spikes/m0/` 下的验证脚本，59 项检查通过 55 项，花费约 $0.48。主要发现：必须显式传权限模式（否则继承全局 bypass）、要设 Git Bash 路径、项目 MCP 需要 App 自己把关、每个对话约 250 MB、走中转时快速模式不可用；好消息是 SDK 有官方会话历史接口，M2 不用自己解析 jsonl。用户表示不用担心 token 花费 |
 | 2026-11-10 | 项目推送到 GitHub 仓库 Foreverlongdamai/Claudex（公开）。全局配置：git 身份（用 GitHub 隐私邮箱）、装了 gh 并登录、git 通过 gh 认证；本机直连 GitHub 不通，git 对 github.com 走本地代理 127.0.0.1:7897。原型里的内网中转地址换成了占位地址 |
 | 2026-11-11 | 开始 M1，完成第一步：能实际使用的聊天 App（见第 5 节 M1 进度）。单元测试 80 项、端到端测试 16 步全部通过 |
+| 2026-11-11 | 用户让直接开始 C1（内置终端）。功能基本做完，过程中查出并处理了 node-pty 的几个问题（同时退出会崩溃 → 升级 beta 版；conhost 和 worker 泄漏；焦点汇报、重放时的自动回答被当成输入）。还剩一个偶发的丢字/错位问题没查完，用户要离开，暂停，代码未提交 |
+| 2026-11-12 | 继续 C1：查清偶发丢字的根因（Git Bash 等输入时被改终端大小会吃掉下一个按键），改成按面板实际大小启动终端、减少改大小。C1 完成，端到端测试扩到 25 步 |
 
 ## 9. Codex 功能对照（2026-11-09 用户选择：4 项都要，第一版就带上）
 

@@ -265,6 +265,172 @@ await step('16 浅色主题', async () => {
   await win.locator('.side-foot .ibtn').click();
 });
 
+// ---------- 内置终端（C1） ----------
+const termText = async () => (await win.locator('.term-panel .xterm-rows').innerText()).replace(/ /g, ' ');
+const termOpen = async () => !(await win.locator('.term-panel').evaluate(el => el.hidden));
+async function termRun(cmd) {
+  // 像人一样等 shell 回到提示符再打字
+  await waitFor(async () => /[$>]$/.test((await termText()).trimEnd()), 20000, `输入 ${cmd} 之前等提示符`);
+  await win.locator('.term-host').click();
+  await win.keyboard.type(cmd);
+  await win.keyboard.press('Enter');
+}
+const waitTerm = (re, label, timeout = 20000) => waitFor(async () => re.test(await termText()), timeout, label);
+const PROMPT = /(\$|>)\s*$/m;
+/** 如果第一次发消息时弹出 MCP 批准，选“全部不启动” */
+async function passMcpGate() {
+  await waitFor(async () => (await win.locator('.mcp-row').count()) > 0 || (await win.locator('.msg.user').count()) > 0, 15000, '发出消息');
+  if (await win.locator('.mcp-row').count()) {
+    await win.getByRole('button', { name: '全部不启动' }).click();
+    await win.getByRole('button', { name: '确定并发送' }).click();
+  }
+}
+
+await step('17 终端：顶栏按钮打开，默认 PowerShell，就在项目目录', async () => {
+  await win.locator('[data-testid=terminal-button]').click();
+  await waitFor(termOpen, 5000, '终端面板打开');
+  if ((await win.locator('[data-testid=terminal-shell]').inputValue()) !== 'powershell') throw new Error('默认不是 PowerShell');
+  await waitTerm(/PS .*demo-project>/, 'PowerShell 提示符（在项目目录）');
+  await termRun('git status -sb'); // 短格式：前面的步骤改过文件时，长格式的第一行会滚出可见区域
+  await waitTerm(/^## main/m, 'git status 输出');
+  await termRun('node --version');
+  await waitTerm(/^v\d+\.\d+\.\d+/m, 'node 版本');
+  await shot('17-terminal');
+});
+
+await step('18 Ctrl+` 收起再打开，终端内容还在', async () => {
+  await win.locator('.term-host').click();
+  await win.keyboard.press('Control+Backquote');
+  await waitFor(async () => !(await termOpen()), 5000, '收起');
+  await win.keyboard.press('Control+Backquote');
+  await waitFor(termOpen, 5000, '再打开');
+  if (!/^## main/m.test(await termText())) throw new Error('内容没了');
+});
+
+await step('19 切到 Git Bash：重新启动，还在项目目录，设置记住了', async () => {
+  await win.locator('[data-testid=terminal-shell]').selectOption('gitbash');
+  await waitFor(async () => !/^## main/m.test(await termText()), 10000, '终端重启');
+  await waitTerm(/\$\s*$/m, 'bash 提示符');
+  await termRun('echo "bash=$BASH_VERSION"; pwd');
+  await waitTerm(/bash=\d+\.\d+/, 'BASH_VERSION');
+  if (!/\/demo-project\s*$/m.test(await termText())) throw new Error('工作目录不对：' + await termText());
+  const shell = await win.evaluate(() => window.claudex.getState().then(s => s.prefs.terminalShell));
+  if (shell !== 'gitbash') throw new Error('没记住：' + shell);
+  await shot('19-gitbash');
+});
+
+await step('20 输入 exit 后提示已退出，按任意键重新启动', async () => {
+  await termRun('exit');
+  await waitTerm(/进程已退出/, '退出提示');
+  await win.keyboard.press('a');
+  await waitFor(async () => !/进程已退出/.test(await termText()), 10000, '重新启动');
+  await waitTerm(/\$\s*$/m, '新的提示符');
+});
+
+await step('21 每个对话有自己的终端，切换时显示各自的输出', async () => {
+  const ids = [];
+  for (let i = 0; i < 2; i++) ids.push(await win.evaluate(p => window.claudex.newConversation(p).then(m => m.id), project));
+  await win.reload(); // 顺带验证：界面刷新后终端进程还在、输出能重放
+  await win.waitForSelector('.app');
+  const item = id => win.locator(`[data-testid=conversation-item][data-id="${id}"]`);
+  await item(ids[0]).click();
+  await win.locator('[data-testid=terminal-button]').click();
+  await waitTerm(PROMPT, '对话 A 的提示符');
+  await termRun('echo marker-AAA');
+  await waitTerm(/^marker-AAA/m, 'A 的输出');
+  await item(ids[1]).click();
+  await waitFor(async () => !/marker-AAA/.test(await termText()), 10000, '切到 B 的终端');
+  await waitTerm(PROMPT, '对话 B 的提示符');
+  await termRun('echo marker-BBB');
+  await waitTerm(/^marker-BBB/m, 'B 的输出');
+  await item(ids[0]).click();
+  await waitTerm(/^marker-AAA/m, '切回 A，A 的输出还在');
+  if (/marker-BBB/.test(await termText())) throw new Error('A 的终端里出现了 B 的输出');
+  await shot('21-terminal-per-conversation');
+});
+
+await step('22 新对话里先开终端，发第一条消息后终端还是同一个', async () => {
+  await win.locator('.thread').click({ position: { x: 20, y: 20 } });
+  await win.keyboard.press('Control+n');
+  await waitFor(async () => !/marker-AAA/.test(await termText()), 10000, '切到新对话的终端');
+  await waitTerm(PROMPT, '提示符');
+  await termRun('echo marker-DRAFT');
+  await waitTerm(/^marker-DRAFT/m, '草稿终端输出');
+  await sendMsg('Reply with exactly the word: ok');
+  await passMcpGate();
+  await waitTurn();
+  if (!/^marker-DRAFT/m.test(await termText())) throw new Error('对话建好后终端变成了新的');
+  const conv = await win.evaluate(() => window.claudex.getState().then(s => s.conversations.sort((a, b) => b.createdAt - a.createdAt)[0]));
+  const ti = await win.evaluate(([id, p]) => window.claudex.termOpen(id, p, 'powershell'), [conv.id, project]);
+  if (!ti.buffer.includes('marker-DRAFT')) throw new Error('主进程里终端没转给新对话');
+});
+
+await step('23 结束终端：里面跑的程序也一起结束，再打开是新的终端', async () => {
+  // Git Bash 是难点：node 默认经 winpty 启动、sleep 是 msys 程序，两者在 Windows 进程树里都和 shell 断开
+  if ((await win.locator('[data-testid=terminal-shell]').inputValue()) !== 'gitbash') throw new Error('这一步要在 Git Bash 里测');
+  const pidOf = f => { const p = path.join(project, f); return fs.existsSync(p) && Number(fs.readFileSync(p, 'utf8').trim()); };
+  await termRun('sleep 1000 & cat /proc/$!/winpid > sleep.pid');
+  await termRun(`node -e "require('fs').writeFileSync('child.pid', String(process.pid)); setInterval(()=>{},1000)"`);
+  await waitFor(async () => pidOf('child.pid') && pidOf('sleep.pid'), 15000, '子进程启动');
+  const pids = [pidOf('child.pid'), pidOf('sleep.pid')];
+  await win.locator('[data-testid=terminal-kill]').click();
+  await waitFor(async () => !(await termOpen()), 5000, '面板收起');
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  await waitFor(async () => !pids.some(alive), 10000, `子进程被结束（还活着：${pids.filter(alive).join(',')}）`);
+  await win.locator('[data-testid=terminal-button]').click();
+  await waitTerm(PROMPT, '新终端的提示符');
+  if (/marker-DRAFT/.test(await termText())) throw new Error('还是原来的终端');
+});
+
+await step('24 重启、结束、自己退出的终端都不留下控制台进程和 worker 线程', async () => {
+  // 每个终端有一个 ConPTY 的控制台进程（OpenConsole.exe，父进程是 Claudex 主进程）和一个读输出的 worker 线程，
+  // 终端没了它们也要跟着没。node-pty 1.1.0 默认模式下两样都会漏（C1 实测）
+  const mainPid = await app.evaluate(() => process.pid); // app.process() 是 Playwright 套的一层 cmd.exe
+  const hosts = () => Number(execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    `@(Get-CimInstance Win32_Process -Filter "ParentProcessId=${mainPid}" | Where-Object { $_.Name -match 'conhost|OpenConsole' }).Count`], { encoding: 'utf8' }).trim());
+  const workers = () => app.evaluate(() => process.getActiveResourcesInfo().filter(r => r === 'MessagePort').length);
+  // 控制台进程数要精确相等；worker 用 MessagePort 数来数，Claude 会话自己也会开关 MessagePort，
+  // 所以只要求“不多于”（泄漏只会让它变多）。单独测终端时精确相等，见 spikes/c1/electron-workers.mjs
+  const expect = async (dh, dw, label) => {
+    let h, w;
+    try {
+      await waitFor(async () => (h = hosts()) === h0 + dh & (w = await workers()) <= w0 + dw, 10000, label);
+    } catch (e) {
+      throw new Error(`${e.message}（控制台进程 ${h0}→${h}，应为 ${h0 + dh}；worker ${w0}→${w}，应不多于 ${w0 + dw}）`);
+    }
+  };
+  const h0 = hosts(), w0 = await workers();
+  if (h0 < 1 || w0 < 1) throw new Error(`没找到终端的控制台进程或 worker（${h0}, ${w0}），测试方法不对`);
+  for (let i = 0; i < 3; i++) {
+    await win.locator('.term-head [title="重新启动终端"]').click();
+    await waitTerm(PROMPT, `第 ${i + 1} 次重启后的提示符`);
+  }
+  await expect(0, 0, '重启 3 次后数量不变');
+  await termRun('exit');
+  await waitTerm(/进程已退出/, '退出提示');
+  await expect(-1, -1, '自己退出后各少一个');
+  await win.keyboard.press('a');
+  await waitTerm(PROMPT, '重新启动');
+  await expect(0, 0, '重新启动后各回来一个');
+  await win.locator('[data-testid=terminal-kill]').click();
+  await expect(-1, -1, '结束终端后各少一个');
+});
+
+await step('25 终端里 Ctrl+V 粘贴、Ctrl+C 中断正在运行的命令', async () => {
+  if (!(await termOpen())) await win.locator('[data-testid=terminal-button]').click();
+  await waitTerm(PROMPT, '提示符');
+  await app.evaluate(({ clipboard }) => clipboard.writeText('echo pasted-$((40+2))'));
+  await win.locator('.term-host').click();
+  await win.keyboard.press('Control+v');
+  await win.keyboard.press('Enter');
+  await waitTerm(/^pasted-42/m, '粘贴的命令执行了');
+  await termRun('sleep 100');
+  await sleep(800);
+  await win.keyboard.press('Control+c');
+  await termRun('echo after-interrupt');
+  await waitTerm(/^after-interrupt/m, 'Ctrl+C 中断了 sleep，后面的命令能执行', 10000);
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));

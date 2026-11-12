@@ -53,6 +53,8 @@ interface UiState {
   /** 每次真正发出消息就加 1，输入框看到变化就清空 */
   sentToken: number;
   pendingSend: PendingSend | null;
+  /** 内置终端面板是否打开 */
+  terminalOpen: boolean;
 
   init(): Promise<void>;
   onEvent(ev: ConvEvent): void;
@@ -74,6 +76,7 @@ interface UiState {
   setTheme(theme: 'dark' | 'light'): Promise<void>;
   setPrefs(patch: Partial<Prefs>): Promise<void>;
   refreshBranch(projectPath: string): Promise<void>;
+  toggleTerminal(open?: boolean): void;
 }
 
 let toastSeq = 0;
@@ -112,6 +115,7 @@ export const useStore = create<UiState>((set, get) => {
     toasts: [],
     sentToken: 0,
     pendingSend: null,
+    terminalOpen: false,
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -247,6 +251,8 @@ export const useStore = create<UiState>((set, get) => {
       if (!id) {
         const draft = s.draft ?? defaultDraft();
         let meta = await api.newConversation(projectPath);
+        // 草稿阶段开的终端跟着转到这个新对话
+        await api.termRekey(`project:${projectPath}`, meta.id);
         if (draft.mode !== meta.mode) await api.setMode(meta.id, draft.mode);
         if (draft.model !== meta.model || draft.effort !== meta.effort) await api.setModel(meta.id, draft.model, draft.effort);
         meta = { ...meta, mode: draft.mode, model: draft.model, effort: draft.effort };
@@ -324,6 +330,10 @@ export const useStore = create<UiState>((set, get) => {
       const app = await api.setPrefs(patch);
       set({ app });
       if (patch.gitBashPath !== undefined) set({ env: await api.getEnv() });
+    },
+
+    toggleTerminal(open) {
+      set(s => ({ terminalOpen: open ?? !s.terminalOpen }));
     },
 
     async refreshBranch(projectPath) {
