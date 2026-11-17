@@ -313,7 +313,10 @@ export function Composer() {
     return () => window.removeEventListener(DROP_EVENT, onDrop);
   }, [projectPath]);
 
+  // 打字快的时候，前一个字的查询可能比后一个晚回来：只认最后一次的结果（不然选中时替换的范围是旧的）
+  const popupSeq = useRef(0);
   const refreshPopup = async (value: string, caret: number) => {
+    const my = ++popupSeq.current;
     const before = value.slice(0, caret);
     let m: RegExpExecArray | null;
     if (projectPath && (m = /^\/(\S*)$/.exec(before))) {
@@ -321,6 +324,7 @@ export function Composer() {
         commands.current = { project: projectPath, list: [] };
         try { commands.current.list = await window.claudex.listCommands(projectPath); } catch { /* 拿不到就不提示 */ }
       }
+      if (my !== popupSeq.current) return;
       const q = m[1].toLowerCase();
       const list = commands.current.list;
       const starts = list.filter(c => c.name.toLowerCase().startsWith(q));
@@ -329,6 +333,7 @@ export function Composer() {
       setPopup(items.length ? { kind: 'slash', items, sel: 0, start: 0, end: caret } : null);
     } else if (projectPath && (m = /(^|\s)@(\S*)$/.exec(before))) {
       const files = await window.claudex.listFiles(cwd ?? projectPath, m[2]);
+      if (my !== popupSeq.current) return;
       const items = files.slice(0, 30).map(f => ({ key: '@' + f, desc: '' }));
       setPopup(items.length ? { kind: 'file', items, sel: 0, start: caret - m[2].length - 1, end: caret } : null);
     } else setPopup(null);
@@ -337,8 +342,13 @@ export function Composer() {
   const pick = (i: number) => {
     if (!popup) return;
     const it = popup.items[i];
-    const next = text.slice(0, popup.start) + it.key + ' ' + text.slice(popup.end);
-    const caret = popup.start + it.key.length + 1;
+    // 按现在的文字和光标重新找要替换的那一段（弹出菜单可能是前一个字时算的）
+    const caretNow = input.current?.selectionStart ?? popup.end;
+    const m = (popup.kind === 'slash' ? /^\/\S*$/ : /@\S*$/).exec(text.slice(0, caretNow));
+    const start = m ? caretNow - m[0].length : popup.start;
+    const end = m ? caretNow : popup.end;
+    const next = text.slice(0, start) + it.key + ' ' + text.slice(end);
+    const caret = start + it.key.length + 1;
     setText(next);
     setPopup(null);
     requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); });

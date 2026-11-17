@@ -3,7 +3,8 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ModeId, PermissionRequest } from '@shared/types';
 import { convCwd } from '@shared/conv';
 import { useStore } from '../store';
-import type { Item } from '../timeline';
+import type { Item, SubStep } from '../timeline';
+import { cleanAgentOutput } from '../timeline';
 import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine, type PathBase } from '../toolView';
 import { FileChip } from './FileChip';
 import { AssignRow, ProfileApproval, ResultCard, TaskCard } from './Team';
@@ -95,11 +96,12 @@ function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: PathBase 
   let body: ReactNode = null;
   if (v.body === 'diff') body = <div className="box"><DiffView lines={editDiff(item)} /></div>;
   else if (v.body === 'markdown') {
-    const text = item.name === 'ExitPlanMode' ? String(item.input.plan ?? '') : item.output ?? '';
+    const text = item.name === 'ExitPlanMode' ? String(item.input.plan ?? '') : item.name === 'Agent' || item.name === 'Task' ? cleanAgentOutput(item.output ?? '') : item.output ?? '';
     body = text ? <div className="box pad"><Markdown text={text} /></div> : null;
   } else if (v.body === 'json') body = <><pre className="out">{JSON.stringify(item.input, null, 2)}</pre>{item.output && <Output text={item.output} />}</>;
   else if (v.body === 'output' && item.output) body = <Output text={item.output} />;
   if (item.status === 'denied' && item.output && v.body !== 'output') body = <><>{body}</><Output text={item.output} /></>;
+  if (item.sub?.length) body = <><SubSteps steps={item.sub} projectPath={projectPath} />{body}</>;
   // 被拒绝的不能说“已运行”，用不带“正在”的动词：运行、编辑、读取……
   const verb = running ? v.running : item.status === 'denied' ? v.running.replace(/^正在/, '') : v.verb;
   return (
@@ -107,6 +109,27 @@ function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: PathBase 
       defaultOpen={v.body === 'diff' && item.status === 'done' && item.name !== 'Write'}>
       {body}
     </ActRow>
+  );
+}
+
+/** 子代理里面的每一步（展开子代理那一行时显示） */
+function SubSteps({ steps, projectPath }: { steps: SubStep[]; projectPath: PathBase }) {
+  return (
+    <div className="substeps" data-testid="substeps">
+      {steps.map(s => {
+        if (s.kind === 'text') return <div className="sub-text" key={s.id}>{s.text}</div>;
+        const v = describeTool({ kind: 'tool', id: s.id, name: s.name, input: s.input, status: s.status, startedAt: 0, subSteps: 0 }, projectPath);
+        return (
+          <div className="sub-step" key={s.id}>
+            <Icon name={v.icon} size={13} />
+            <span className="verb">{s.status === 'running' ? v.running : v.verb}</span>
+            {v.target && <span className="target">{v.target}</span>}
+            {s.status === 'error' && <span className="tag fail">出错</span>}
+            {s.status === 'running' && <i className="spin" />}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

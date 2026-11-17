@@ -1,6 +1,6 @@
 // 时间线整理逻辑的单元测试：用一段模拟的 SDK 消息流（逐字片段 + 完整消息 + 工具结果 + 结束）。
 // 运行：npm run test:unit
-import { addApproval, addUser, applySdk, emptyTimeline, resolveApproval, stripModeWrapper, type Timeline } from '../../src/renderer/src/timeline.ts';
+import { addApproval, addUser, applySdk, cleanAgentOutput, emptyTimeline, resolveApproval, stripModeWrapper, type Timeline } from '../../src/renderer/src/timeline.ts';
 
 let failed = 0;
 const check = (label: string, ok: boolean, detail?: unknown) => {
@@ -79,6 +79,38 @@ check('实时模式不重复显示用户消息', h.items.length === 0);
 t = feed(emptyTimeline(), [{ type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: 10, errors: ['连接中断'] }]);
 check('出错的一轮有错误提示', t.items.some(i => i.kind === 'notice' && i.tone === 'error' && i.detail === '连接中断'), t.items);
 
-const total = 17;
+// 7. 子代理：里面的每一步记在子代理那一行下面
+t = feed(emptyTimeline(), [
+  { type: 'assistant', message: { id: 'p1', content: [{ type: 'tool_use', id: 'agent1', name: 'Agent', input: { description: '查资料', prompt: '去查' } }] } },
+  { type: 'assistant', parent_tool_use_id: 'agent1', message: { id: 's1', content: [{ type: 'text', text: '我先搜一下' }] } },
+  { type: 'assistant', parent_tool_use_id: 'agent1', message: { id: 's1', content: [{ type: 'tool_use', id: 'g1', name: 'Grep', input: { pattern: 'TODO' } }] } },
+  { type: 'assistant', parent_tool_use_id: 'agent1', message: { id: 's2', content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.ts' } }] } },
+  { type: 'user', parent_tool_use_id: 'agent1', message: { content: [{ type: 'tool_result', tool_use_id: 'g1', content: 'x' }, { type: 'tool_result', tool_use_id: 'r1', content: 'boom', is_error: true }] } },
+  { type: 'assistant', parent_tool_use_id: 'agent1', message: { id: 's2', content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.ts' } }] } }
+]);
+const sub7 = t.items.find(i => i.kind === 'tool' && i.id === 'agent1');
+check('子代理的步骤：文字和工具、按顺序', sub7?.kind === 'tool' && JSON.stringify(sub7.sub?.map(s => s.kind === 'tool' ? `${s.name}:${s.status}` : s.text)) === JSON.stringify(['我先搜一下', 'Grep:done', 'Read:error']), sub7);
+check('子代理的步数（重复的不算）', sub7?.kind === 'tool' && sub7.subSteps === 2, sub7);
+check('子代理内部的消息不单独显示', t.items.length === 1, t.items);
+
+// 8. API 请求失败在重试：一条提示，后面的重试更新同一条；连上了改成“重试后连上了”
+const retry = (attempt: number) => ({ type: 'system', subtype: 'api_retry', attempt, max_retries: 10, retry_delay_ms: 2000, error_status: 401, error: 'authentication_failed' });
+t = feed(addUser(emptyTimeline(), 'hi', 0, false), [retry(1), retry(2)]);
+const notices = t.items.filter(i => i.kind === 'notice');
+check('重试的提示只有一条，写着原因和第几次', notices.length === 1 && notices[0].kind === 'notice' && notices[0].text.includes('认证失败') && notices[0].text.includes('第 2 次重试') && !!notices[0].detail?.includes('ANTHROPIC_AUTH_TOKEN'), notices);
+t = feed(t, [{ type: 'stream_event', event: { type: 'message_start', message: { id: 'm9' } } }]);
+const settled = t.items.find(i => i.kind === 'notice');
+check('连上了：提示改成重试后连上了', settled?.kind === 'notice' && settled.tone === 'info' && settled.text.includes('第 2 次重试后连上了'), settled);
+t = feed(addUser(emptyTimeline(), 'hi', 0, false), [retry(1), { type: 'assistant', error: 'authentication_failed', message: { id: 'e1', content: [{ type: 'text', text: 'Invalid API key' }] } }]);
+const final = t.items.filter(i => i.kind === 'notice');
+check('重试到最后还是失败：换成最终的错误', final.length === 1 && final[0].kind === 'notice' && final[0].tone === 'error' && final[0].text === 'API 请求失败：认证失败（令牌无效或过期）' && !final[0].retry, final);
+t = feed(emptyTimeline(), [{ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 10, retry_delay_ms: 500, error_status: null, error: undefined }]);
+check('连接错误（没有 HTTP 状态）', t.items[0]?.kind === 'notice' && t.items[0].text.includes('连不上 API') && t.items[0].text.includes('1 秒后'), t.items);
+
+const handBack = '<tools-used-before-summary>Read</tools-used-before-summary>\n[Subagent hand-back] The text below is the final report of a subagent. The report follows: The first line is:\n\n\`\`\`\n# demo\n\`\`\`\n\nagentId: aa71 (use SendMessage with to: \'aa71\' to continue this agent) <usage>subagent_tokens: 1 tool_uses: 1</usage>';
+check('子代理的结果去掉给模型看的包装', cleanAgentOutput(handBack) === 'The first line is:\n\n\`\`\`\n# demo\n\`\`\`', cleanAgentOutput(handBack));
+check('没有包装的原样', cleanAgentOutput('just text') === 'just text');
+
+const total = 26;
 console.log(`--- 时间线：${total - failed}/${total} 通过`);
 process.exit(failed ? 1 : 0);

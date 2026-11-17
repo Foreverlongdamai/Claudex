@@ -10,6 +10,40 @@ export type ToolStatus = 'running' | 'done' | 'error' | 'denied';
 export type NoticeTone = 'info' | 'ok' | 'error' | 'blocked';
 export interface NoticeLink { label: string; url: string }
 
+/** 子代理里面的一步：用了什么工具，或者说了什么 */
+export type SubStep =
+  | { kind: 'tool'; id: string; name: string; input: Record<string, unknown>; status: ToolStatus }
+  | { kind: 'text'; id: string; text: string };
+
+/**
+ * 子代理交回的结果里，Claude Code 包了一层给模型看的说明（用过的工具、“这是子代理的汇报”的提示、agentId 和用量），
+ * 界面上只显示汇报本身
+ */
+export function cleanAgentOutput(text: string): string {
+  let s = text.replace(/<tools-used-before-summary>[\s\S]*?<\/tools-used-before-summary>\s*/g, '');
+  s = s.replace(/^\s*\[Subagent hand-back\][\s\S]*?The report follows:\s*/, '');
+  s = s.replace(/<usage>[\s\S]*?<\/usage>/g, '');
+  s = s.replace(/\n?\s*agentId:\s*\S+[^\n]*\s*$/, '');
+  return s.trim();
+}
+
+/** API 出错的原因（SDK 的 error 字段）→ 给人看的说法和怎么办 */
+export const API_ERRORS: Record<string, [string, string]> = {
+  authentication_failed: ['认证失败（令牌无效或过期）', '检查 Claude Code 设置里的 ANTHROPIC_AUTH_TOKEN（左栏“设置” → 打开 Claude Code 设置 → 环境变量），或者在命令行里重新登录'],
+  oauth_org_not_allowed: ['这个账号所在的组织不允许使用', '换一个账号登录'],
+  account_on_hold: ['账号被暂停了', '到 Anthropic 账号页面看看原因'],
+  verification_required: ['账号需要先验证', '到 Anthropic 账号页面完成验证'],
+  billing_error: ['计费出错（余额不足或者没有付款方式）', '充值或者检查付款方式；走中转的话联系中转服务'],
+  rate_limit: ['请求太频繁，或者额度用完了', '等一会儿再试；额度用完的话要等额度恢复'],
+  overloaded: ['API 服务繁忙', '一般过一会儿就好'],
+  invalid_request: ['请求不合法', '可能是对话太长或者附件太大，试试新开一个对话'],
+  model_not_found: ['找不到这个模型', '中转可能不支持这个模型，在输入框右下角换一个'],
+  server_error: ['API 服务器出错', '一般过一会儿就好'],
+  cloud_credential_error: ['云服务的凭证有问题', '检查 Claude Code 里配置的云服务凭证'],
+  max_output_tokens: ['回复超过了长度上限', '让 Claude 分几次写'],
+  unknown: ['未知错误', '看看 Claudex 的日志（userData/logs/main.log）']
+};
+
 export type Item =
   | { kind: 'user'; id: string; text: string; images: number; skillsMode: boolean; files: string[] }
   | { kind: 'text'; id: string; msgId: string; text: string; streaming: boolean }
@@ -17,9 +51,11 @@ export type Item =
   | {
       kind: 'tool'; id: string; name: string; input: Record<string, unknown>; status: ToolStatus;
       output?: string; extra?: unknown; startedAt: number; endedAt?: number; subSteps: number;
+      /** 子代理（Agent / Task 工具）里面做了什么 */
+      sub?: SubStep[];
     }
   | { kind: 'approval'; id: string; request: PermissionRequest; resolved?: 'allow' | 'always' | 'deny' | 'cancelled'; note?: string }
-  | { kind: 'notice'; id: string; tone: NoticeTone; text: string; detail?: string; link?: NoticeLink }
+  | { kind: 'notice'; id: string; tone: NoticeTone; text: string; detail?: string; link?: NoticeLink; retry?: boolean }
   | { kind: 'turn-end'; id: string; durationMs: number; costUsd?: number; isError: boolean }
   /** 团队：负责人派来的任务（员工的对话里） */
   | { kind: 'task'; id: string; taskId: string; from: string; title: string; text: string }
@@ -124,14 +160,8 @@ export const pendingApprovals = (t: Timeline) => t.items.filter(i => i.kind === 
 
 export function applySdk(t: Timeline, msg: SdkMessageLike, live: boolean): Timeline {
   const m = msg as Record<string, any>;
-  // 子代理内部的消息不单独显示，只给对应的子代理那一行计步数
-  if (m.parent_tool_use_id) {
-    if (m.type === 'assistant') {
-      const steps = (m.message?.content ?? []).filter((b: any) => b.type === 'tool_use').length;
-      if (steps) return update(t, m.parent_tool_use_id, 'tool', it => ({ subSteps: it.subSteps + steps }));
-    }
-    return t;
-  }
+  // 子代理内部的消息不单独显示，记在对应的子代理那一行下面（展开能看到每一步）
+  if (m.parent_tool_use_id) return applySub(t, m);
   switch (m.type) {
     case 'system': return applySystem(t, m);
     case 'stream_event': return live ? applyStream(t, m.event) : t;
@@ -142,7 +172,61 @@ export function applySdk(t: Timeline, msg: SdkMessageLike, live: boolean): Timel
   }
 }
 
+function applySub(t: Timeline, m: Record<string, any>): Timeline {
+  const pid = m.parent_tool_use_id as string;
+  if (m.type === 'assistant') {
+    const steps: SubStep[] = [];
+    for (const b of m.message?.content ?? []) {
+      if (b.type === 'tool_use' || b.type === 'server_tool_use') steps.push({ kind: 'tool', id: b.id, name: b.name, input: b.input ?? {}, status: 'running' });
+      else if (b.type === 'text' && b.text?.trim()) steps.push({ kind: 'text', id: uid('sub'), text: b.text.trim().slice(0, 600) });
+    }
+    if (!steps.length) return t;
+    return update(t, pid, 'tool', it => {
+      const fresh = steps.filter(s => s.kind === 'text' || !(it.sub ?? []).some(x => x.id === s.id));
+      return { subSteps: it.subSteps + fresh.filter(s => s.kind === 'tool').length, sub: [...(it.sub ?? []), ...fresh].slice(-200) };
+    });
+  }
+  if (m.type === 'user') {
+    const results = (Array.isArray(m.message?.content) ? m.message.content : []).filter((b: any) => b?.type === 'tool_result');
+    if (!results.length) return t;
+    return update(t, pid, 'tool', it => ({
+      sub: (it.sub ?? []).map(s => {
+        const r = s.kind === 'tool' ? results.find((x: any) => x.tool_use_id === s.id) : undefined;
+        return r && s.kind === 'tool' ? { ...s, status: r.is_error ? ('error' as const) : ('done' as const) } : s;
+      })
+    }));
+  }
+  return t;
+}
+
+/** API 请求失败、Claude Code 在重试：一条提示，后面的重试更新同一条（不刷屏） */
+function applyRetry(t: Timeline, m: Record<string, any>): Timeline {
+  const [why, hint] = API_ERRORS[m.error] ?? (m.error_status ? [`HTTP ${m.error_status}`, ''] : ['连不上 API', '检查网络、代理，或者 Claude Code 设置里的 ANTHROPIC_BASE_URL（中转地址）']);
+  const secs = Math.max(1, Math.round((m.retry_delay_ms ?? 0) / 1000));
+  const text = `API 请求失败：${why}${m.error_status ? `（${m.error_status}）` : ''}。${secs} 秒后第 ${m.attempt} 次重试，最多 ${m.max_retries} 次`;
+  const i = t.items.length - 1;
+  const last = t.items[i];
+  if (last?.kind === 'notice' && last.retry) {
+    const items = t.items.slice();
+    items[i] = { ...last, text, detail: hint || undefined };
+    return { ...t, items };
+  }
+  return push(t, { kind: 'notice', id: uid('retry'), tone: 'error', text, detail: hint || undefined, retry: true });
+}
+
+/** 重试后连上了：那条提示改成“重试后连上了” */
+function settleRetry(t: Timeline): Timeline {
+  const i = t.items.findIndex(it => it.kind === 'notice' && it.retry);
+  if (i < 0) return t;
+  const items = t.items.slice();
+  const n = items[i] as Extract<Item, { kind: 'notice' }>;
+  const attempt = /第 (\d+) 次重试/.exec(n.text)?.[1];
+  items[i] = { ...n, tone: 'info', retry: false, text: `API 请求失败过，${attempt ? `第 ${attempt} 次` : ''}重试后连上了`, detail: n.text };
+  return { ...t, items };
+}
+
 function applySystem(t: Timeline, m: Record<string, any>): Timeline {
+  if (m.subtype === 'api_retry') return applyRetry(t, m);
   if (m.subtype === 'init') {
     return {
       ...t,
@@ -162,7 +246,7 @@ function applyStream(t: Timeline, ev: Record<string, any>): Timeline {
   if (!ev) return t;
   switch (ev.type) {
     case 'message_start':
-      return { ...t, stream: { msgId: ev.message?.id ?? null, blocks: {} } };
+      return { ...settleRetry(t), stream: { msgId: ev.message?.id ?? null, blocks: {} } };
     case 'content_block_start': {
       const msgId = t.stream.msgId ?? 'msg';
       const cb = ev.content_block ?? {};
@@ -195,7 +279,7 @@ function applyStream(t: Timeline, ev: Record<string, any>): Timeline {
 
 function applyAssistant(t: Timeline, m: Record<string, any>): Timeline {
   const msgId: string = m.message?.id ?? uid('msg');
-  let next = t;
+  let next = m.error ? t : settleRetry(t);
   for (const block of m.message?.content ?? []) {
     if (block.type === 'text') {
       // 先找同一条消息里还在流式输出的文字，用完整内容收尾；找不到就新加一条
@@ -214,7 +298,13 @@ function applyAssistant(t: Timeline, m: Record<string, any>): Timeline {
       else next = push(next, { kind: 'tool', id: block.id, name: block.name, input: block.input ?? {}, status: 'running', startedAt: Date.now(), subSteps: 0 });
     }
   }
-  if (m.error) next = addNotice(next, 'error', `请求出错：${m.error}`);
+  if (m.error) {
+    const [why, hint] = API_ERRORS[m.error] ?? [String(m.error), ''];
+    // 重试到最后还是失败：把正在重试的那条提示换成最终的错误
+    const i = next.items.findIndex(it => it.kind === 'notice' && it.retry);
+    if (i >= 0) next = { ...next, items: next.items.filter((_, j) => j !== i) };
+    next = addNotice(next, 'error', `API 请求失败：${why}`, hint || undefined);
+  }
   return next;
 }
 

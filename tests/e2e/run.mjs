@@ -1518,6 +1518,119 @@ await step('68 快捷键（Ctrl+K、Ctrl+/、Ctrl+,、Ctrl+Shift+A/B/D、Alt+↓
   await win.keyboard.press('Control+k');
 });
 
+// ---------- M1 收尾：以前只手动验证过的几项 ----------
+await step('69 输入框：/ 打开命令和 Skills，@ 引用文件', async () => {
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await input().fill('');
+  await input().pressSequentially('/');
+  await win.waitForSelector('.popup .pi', { timeout: 30000 });
+  if (!(await win.locator('.popup .pg').innerText()).includes('命令和 Skills')) throw new Error('弹出的不是命令菜单');
+  if ((await win.locator('.popup .pi').count()) < 2) throw new Error('命令太少');
+  await input().pressSequentially('hello');
+  await waitFor(async () => (await win.locator('.popup .pi .pk').allInnerTexts()).includes('/hello-skill'), 10000, '能搜到项目里的 Skill');
+  await shot('69-slash');
+  await input().press('Enter');
+  if ((await input().inputValue()) !== '/hello-skill ') throw new Error('选中后输入框不对：' + await input().inputValue());
+  await input().fill('');
+  await input().pressSequentially('看看 @READ');
+  await win.waitForSelector('.popup .pi');
+  if (!(await win.locator('.popup .pg').innerText()).includes('文件')) throw new Error('弹出的不是文件菜单');
+  await win.locator('.popup .pi', { hasText: '@README.md' }).first().dispatchEvent('mousedown');
+  await waitFor(async () => (await input().inputValue()) === '看看 @README.md ', 3000, '选中文件后输入框');
+  await input().fill('');
+});
+
+await step('70 粘贴图片：截图直接粘贴进输入框，Claude 能看到', async () => {
+  await input().focus();
+  await win.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ff0000';
+    g.fillRect(0, 0, 64, 64);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], 'red.png', { type: 'image/png' }));
+    document.querySelector('[data-testid=composer-input]').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await win.waitForSelector('.attachments .thumb img', { timeout: 5000 });
+  await shot('70-pasted');
+  await sendMsg('What is the main color of the attached image? Reply with one lowercase English word.');
+  await waitTurn();
+  if (!/red/i.test(await lastAssistant())) throw new Error('Claude 没看到图片：' + await lastAssistant());
+});
+
+await step('71 同时运行的对话有上限：超出时回收闲置的，再发消息自动续接', async () => {
+  await win.evaluate(() => window.claudex.setPrefs({ maxLiveSessions: 1 }));
+  const logFile = path.join(userData, 'logs', 'main.log');
+  const before = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').split('回收闲置对话进程').length : 0;
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await sendMsg('Remember the number 4711. Reply with exactly: OK');
+  await waitTurn();
+  const a = await activeConvId();
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await sendMsg('Reply with exactly: B-OK');
+  await waitTurn();
+  await waitFor(() => fs.readFileSync(logFile, 'utf8').split('回收闲置对话进程').length > before, 5000, '日志里记着回收了闲置的对话进程');
+  await win.locator(`[data-testid=conversation-item][data-id="${a}"]`).click();
+  await sendMsg('What number did I ask you to remember? Reply with just the number.');
+  await waitTurn();
+  if (!(await lastAssistant()).includes('4711')) throw new Error('回收后续接不记得：' + await lastAssistant());
+  await win.evaluate(() => window.claudex.setPrefs({ maxLiveSessions: 4 }));
+});
+
+await step('72 设置：新对话的默认模式，保底黑名单开关', async () => {
+  await win.keyboard.press('Control+,');
+  await win.waitForSelector('.settings');
+  await win.locator('.settings select').first().selectOption('acceptEdits');
+  const rule = win.locator('.settings .rule-row').first();
+  await rule.locator('.mini-sw').click();
+  await waitFor(async () => (await win.evaluate(() => window.claudex.getState())).prefs.blacklist[0].enabled === false, 3000, '黑名单规则关掉');
+  await rule.locator('.mini-sw').click();
+  await waitFor(async () => (await win.evaluate(() => window.claudex.getState())).prefs.blacklist[0].enabled === true, 3000, '黑名单规则打开');
+  await shot('72-settings');
+  await win.keyboard.press('Escape');
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await waitFor(async () => (await win.locator('[data-testid=mode-button]').innerText()).includes('自动接受编辑'), 3000, '新对话用新的默认模式');
+  await win.keyboard.press('Control+,');
+  await win.locator('.settings select').first().selectOption('default');
+  await win.keyboard.press('Escape');
+});
+
+await step('73 子代理：展开那一行能看到它里面每一步做了什么', async () => {
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await sendMsg('Use the Agent tool (subagent_type "general-purpose") with this prompt: "Read the file README.md in the current directory and report its first line." Do not read the file yourself. Then reply with the first line the subagent reported.');
+  await runApproving(300000);
+  const row = win.locator('.act', { hasText: '子代理' }).last();
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('.act-head').click();
+  await win.waitForSelector('[data-testid=substeps] .sub-step', { timeout: 10000 });
+  const steps = await win.locator('[data-testid=substeps]').last().innerText();
+  if (!/README/.test(steps)) throw new Error('子代理的步骤里没有读 README：' + steps);
+  if ((await row.innerText()).includes('Subagent hand-back')) throw new Error('子代理的结果里还有给模型看的包装');
+  await shot('73-substeps');
+});
+
+await step('74 API 令牌无效：显示出错原因和怎么办，不是一直转圈', async () => {
+  const bad = path.join(work, 'bad-token-project');
+  fs.mkdirSync(path.join(bad, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(bad, 'README.md'), '# bad\n');
+  // 只在这个测试项目里把令牌换成无效的（项目本地设置），不碰真实配置
+  fs.writeFileSync(path.join(bad, '.claude', 'settings.local.json'), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: 'sk-invalid-e2e-token', ANTHROPIC_API_KEY: 'sk-invalid-e2e-token' } }));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: bad });
+  await win.evaluate(p => window.claudex.addProject(p), bad);
+  await win.reload();
+  await win.waitForSelector('.app');
+  await win.locator('.proj-head', { hasText: 'bad-token-project' }).click();
+  await sendMsg('Reply with exactly: OK');
+  await waitFor(async () => (await win.locator('.notice', { hasText: 'API 请求失败' }).count()) > 0, 120000, '显示 API 请求失败');
+  const text = await win.locator('.notice', { hasText: 'API 请求失败' }).last().innerText();
+  await shot('74-bad-token');
+  if (!/认证失败|401|HTTP/.test(text)) throw new Error('原因没说清楚：' + text);
+  if (await win.locator('[data-testid=stop-button]').count()) await win.locator('[data-testid=stop-button]').click();
+  await waitTurn(60000);
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
