@@ -433,3 +433,18 @@ body.resizing { cursor: col-resize; user-select: none; }
 .field-err { color: var(--danger) !important; font-size: 12.5px !important; }
 .pr-branch { margin: 12px 0 4px; }
 .pr-branch input { font-family: var(--mono); padding: 7px 12px; }
+
+/* ---------- worktree（C3） ---------- */
+.wt-chip { display: inline-flex; align-items: center; gap: 5px; font: 12px var(--mono); color: var(--env); border: 1px solid var(--env); background: var(--env-soft); border-radius: 999px; padding: 0 9px; flex: none; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbtn:disabled { opacity: .45; cursor: default; }
+.mchip.place-wt { color: var(--env); border-color: var(--env); background: var(--env-soft); }
+.uchip.wt { color: var(--env); }
+.mitem:disabled { opacity: .5; cursor: default; }
+.mitem:disabled:hover { background: none; }
+.sess-wt { display: flex; color: var(--env); flex: none; margin-left: -20px; width: 14px; }
+.plain-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+.plain-list li { margin: 3px 0; }
+/* 改动面板打开、对话区变窄时：输入框下面的标签不折行，提示文字放不下就截断 */
+.under { min-width: 0; }
+.under .mchip, .under .uchip { white-space: nowrap; flex: none; }
+.under .uhint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

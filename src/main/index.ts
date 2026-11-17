@@ -12,6 +12,8 @@ import * as git from './git';
 import { log } from './log';
 import { checkProject, gitBranch, listFiles, projectMcpServers } from './projects';
 import { ReviewManager } from './review';
+import * as worktree from './worktree';
+import { convCwd, inWorktree } from '../shared/conv';
 import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
 
@@ -42,6 +44,13 @@ const trash = async (p: string) => {
   fs.mkdirSync(dir, { recursive: true });
   fs.renameSync(p, path.join(dir, `${Date.now()}-${path.basename(p)}`));
 };
+
+/** 删 worktree 之前：关掉这个对话的 Claude 进程和终端、停止监视（Windows 上有程序占着文件夹就删不掉） */
+async function releaseWorktree(convId: string): Promise<void> {
+  manager.delete(convId);
+  terminals.closeKeys(k => k === convId);
+  await review.watch(null);
+}
 
 /** 没批准过的项目 MCP 服务器一律不启动 */
 function disabledMcp(projectPath: string): string[] {
@@ -113,13 +122,40 @@ function registerIpc(): void {
       store.removeProject(p);
       return store.state;
     },
-    newConversation: async p => store.newConversation(p),
+    newConversation: async (p, opts) => store.newConversation(p, opts?.worktree ? await worktree.createWorktree(p) : undefined),
+    worktreeCheck: p => worktree.worktreeCheck(p),
+    handoff: async id => {
+      const meta = store.conversation(id);
+      if (!meta?.worktree || !inWorktree(meta)) throw new Error('这个对话不在 worktree 里');
+      if (manager.isBusy(id)) throw new Error('Claude 正在回复或者在等你审批，等这一轮结束再接手');
+      await releaseWorktree(id);
+      const r = await worktree.handoff(meta.projectPath, meta.worktree);
+      // 对话改在本地继续：会话 ID 不变（Claude Code 能跨同一仓库的 worktree 找到会话，见 spikes/c3）
+      const next = { ...meta, worktree: { ...meta.worktree, handedOff: { at: Date.now(), files: r.files } } };
+      store.updateConversation(next);
+      const root = await git.repoRoot(meta.projectPath);
+      if (root) review.moveConv(id, root);
+      emit({ kind: 'meta', convId: id, meta: next });
+      return { ...r, branch: meta.worktree.branch, meta: next };
+    },
     openConversation: id => manager.open(id),
-    deleteConversation: async id => { manager.delete(id); review.forget(id); terminals.closeKeys(k => k === id); store.removeConversation(id); return store.state; },
+    deleteConversation: async id => {
+      const meta = store.conversation(id);
+      if (meta?.worktree && inWorktree(meta)) {
+        // worktree 里的改动先存到它的分支上，再删掉 worktree
+        await releaseWorktree(id);
+        await worktree.discard(meta.projectPath, meta.worktree);
+      }
+      manager.delete(id);
+      review.forget(id);
+      terminals.closeKeys(k => k === id);
+      store.removeConversation(id);
+      return store.state;
+    },
     send: async (id, text, images, files) => {
       // 先给“上一轮”拍开始快照
       const meta = store.conversation(id);
-      if (meta) await review.turnStart(id, meta.projectPath);
+      if (meta) await review.turnStart(id, convCwd(meta));
       return manager.send(id, text, images, files);
     },
     interrupt: async id => { await manager.interrupt(id); },

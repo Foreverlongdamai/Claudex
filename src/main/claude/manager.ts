@@ -3,6 +3,7 @@
 import { getSessionMessages, query, type Query } from '@anthropic-ai/claude-agent-sdk';
 import os from 'node:os';
 import type { CommandInfo, ConvEvent, FileAttachment, ImageAttachment, ModelOption, OpenedConversation, SdkMessageLike } from '../../shared/types';
+import { convCwd } from '../../shared/conv';
 import type { Store } from '../store';
 import { ConvSession, type SessionDeps } from './session';
 
@@ -52,7 +53,7 @@ export class SessionManager {
     let history: SdkMessageLike[] = [];
     if (s.meta.sessionId) {
       try {
-        const msgs = await getSessionMessages(s.meta.sessionId, { dir: s.meta.projectPath });
+        const msgs = await getSessionMessages(s.meta.sessionId, { dir: convCwd(s.meta) });
         history = msgs.map(m => ({ type: m.type, uuid: m.uuid, message: m.message, parent_tool_use_id: m.parent_tool_use_id }));
       } catch (e) {
         this.deps.log(`读取历史失败（${s.meta.title}）：${e instanceof Error ? e.message : e}`);
@@ -67,6 +68,8 @@ export class SessionManager {
     await s.send(text, images, files);
   }
 
+  /** 正在回复或者在等审批 */
+  isBusy(convId: string): boolean { return this.sessions.get(convId)?.busy ?? false; }
   interrupt(convId: string) { return this.sessions.get(convId)?.interrupt(); }
   setMode(convId: string, mode: Parameters<ConvSession['setMode']>[0]) { return this.session(convId).setMode(mode); }
   setModel(convId: string, model: string, effort: Parameters<ConvSession['setModel']>[1]) { return this.session(convId).setModel(model, effort); }

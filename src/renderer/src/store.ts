@@ -4,6 +4,7 @@ import type {
   AppState, CommitRequest, CommitResult, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
+import { convCwd } from '@shared/conv';
 import { MODES } from './modes';
 import { addApproval, addNotice, addUser, applySdk, emptyTimeline, resolveApproval, type Timeline } from './timeline';
 
@@ -24,6 +25,7 @@ export type Dialog =
   | { kind: 'trust'; check: ProjectCheck }
   | { kind: 'settings' }
   | { kind: 'pr-branch'; cwd: string; message: string }
+  | { kind: 'handoff'; convId: string }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -36,6 +38,8 @@ export interface Draft {
   mode: ModeId;
   model: string;
   effort: Effort;
+  /** 在本地项目文件夹里干活，还是开一个新的 worktree（C3，默认本地） */
+  place?: 'local' | 'worktree';
 }
 
 interface PendingSend {
@@ -104,6 +108,9 @@ interface UiState {
   commit(cwd: string, req: CommitRequest): Promise<CommitResult>;
   /** 当前对话（或草稿）的项目里加一条提示 */
   notify(tone: 'ok' | 'error', text: string, detail?: string, link?: { label: string; url: string }): void;
+  setDraftPlace(place: 'local' | 'worktree'): void;
+  /** 接手到本地（C3） */
+  handoff(convId: string): Promise<void>;
 }
 
 let toastSeq = 0;
@@ -228,7 +235,7 @@ export const useStore = create<UiState>((set, get) => {
       }
       const meta = get().convs[id].meta;
       set({ activeId: id, activeProject: meta.projectPath, draft: null });
-      void get().refreshBranch(meta.projectPath);
+      void get().refreshBranch(convCwd(meta));
     },
 
     async pickProject() {
@@ -260,7 +267,13 @@ export const useStore = create<UiState>((set, get) => {
     },
 
     async deleteConversation(id) {
-      const app = await api.deleteConversation(id);
+      let app: AppState;
+      try {
+        app = await api.deleteConversation(id);
+      } catch (e) {
+        get().toast(`删除失败：${errText(e)}`);
+        return;
+      }
       const convs = { ...get().convs };
       const project = convs[id]?.meta.projectPath;
       delete convs[id];
@@ -284,9 +297,18 @@ export const useStore = create<UiState>((set, get) => {
       let id = s.activeId;
       if (!id) {
         const draft = s.draft ?? defaultDraft();
-        let meta = await api.newConversation(projectPath);
-        // 草稿阶段开的终端跟着转到这个新对话
-        await api.termRekey(`project:${projectPath}`, meta.id);
+        const inWt = draft.place === 'worktree';
+        let meta: ConversationMeta;
+        try {
+          if (inWt) get().toast('正在创建 worktree…');
+          meta = await api.newConversation(projectPath, { worktree: inWt });
+        } catch (e) {
+          get().toast(`${inWt ? '创建 worktree 失败' : '新建对话失败'}：${errText(e)}`);
+          return;
+        }
+        // 草稿阶段开的终端跟着转到这个新对话（worktree 对话的目录不一样，不转）
+        if (!inWt) await api.termRekey(`project:${projectPath}`, meta.id);
+        else void get().refreshBranch(convCwd(meta));
         if (draft.mode !== meta.mode) await api.setMode(meta.id, draft.mode);
         if (draft.model !== meta.model || draft.effort !== meta.effort) await api.setModel(meta.id, draft.model, draft.effort);
         meta = { ...meta, mode: draft.mode, model: draft.model, effort: draft.effort };
@@ -379,7 +401,8 @@ export const useStore = create<UiState>((set, get) => {
 
     onGit(ev) {
       const s = get();
-      const cwd = s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject;
+      const active = s.activeId ? s.convs[s.activeId]?.meta : null;
+      const cwd = active ? convCwd(active) : s.activeProject;
       if (ev.kind === 'dirty') {
         if (cwd) void get().refreshBranch(cwd);
         set(st => ({ gitTick: st.gitTick + 1 }));
@@ -423,6 +446,31 @@ export const useStore = create<UiState>((set, get) => {
       set(s => ({ gitTick: s.gitTick + 1 }));
     },
 
+    setDraftPlace(place) {
+      set(s => ({ draft: { ...(s.draft ?? defaultDraft()), place } }));
+    },
+
+    async handoff(convId) {
+      set({ dialog: null, gitBusy: '正在接手到本地…' });
+      try {
+        const r = await api.handoff(convId);
+        upsertMetaInApp(r.meta);
+        patchConv(convId, c => ({ meta: r.meta, status: c.status === 'error' ? 'dormant' : c.status }));
+        const text = r.files ? `已接手到本地：${r.files} 个文件的改动搬到了项目文件夹，没有提交` : '已接手到本地（worktree 里没有改动）';
+        get().notify('ok', text, `worktree 已删除；分支 ${r.branch} 里存着接手时的全部改动。之后这个对话就在本地项目文件夹里继续。`);
+        if (r.conflicts.length) get().notify('error', `${r.conflicts.length} 个文件和本地的改动冲突了，已经写上冲突标记，请解决`, r.conflicts.join('\n'));
+        get().toast(r.conflicts.length ? `已接手，但有 ${r.conflicts.length} 个文件冲突` : '已接手到本地');
+        // 打开改动面板看搬过来的改动
+        set({ reviewOpen: true, reviewScope: 'unstaged' });
+        await get().refreshBranch(r.meta.projectPath);
+      } catch (e) {
+        get().notify('error', '接手到本地失败', errText(e));
+        get().toast(`接手失败：${errText(e).split('\n')[0]}`);
+      } finally {
+        set(s => ({ gitBusy: null, gitTick: s.gitTick + 1 }));
+      }
+    },
+
     notify(tone, text, detail, link) {
       const id = get().activeId;
       if (id) patchConv(id, c => ({ timeline: addNotice(c.timeline, tone, text, detail, link) }));
@@ -464,9 +512,12 @@ export const useStore = create<UiState>((set, get) => {
   };
 });
 
-/** 当前对话（或草稿）所在的目录（C3 以后会是对话自己的 worktree） */
+/** 当前对话（或草稿）实际的工作目录：worktree 对话是它的 worktree，否则是项目文件夹 */
 export function useActiveCwd(): string | null {
-  return useStore(s => (s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject) ?? null);
+  return useStore(s => {
+    const meta = s.activeId ? s.convs[s.activeId]?.meta : null;
+    return (meta ? convCwd(meta) : s.activeProject) ?? null;
+  });
 }
 
 /** 当前对话（或草稿）用的模式、模型 */

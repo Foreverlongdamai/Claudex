@@ -23,11 +23,17 @@ export interface DiffLine {
 
 const s = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v));
 
+/** 对话的工作目录；接手到本地的 worktree 对话还要算上原来的 worktree 目录（历史记录里是那里的路径） */
+export type PathBase = string | string[];
+
 /** 项目内的文件显示相对路径 */
-export function relPath(file: string, projectPath: string): string {
+export function relPath(file: string, base: PathBase): string {
   const f = file.replace(/\\/g, '/');
-  const p = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
-  return f.toLowerCase().startsWith(p.toLowerCase() + '/') ? f.slice(p.length + 1) : f;
+  for (const b of Array.isArray(base) ? base : [base]) {
+    const p = b.replace(/\\/g, '/').replace(/\/$/, '');
+    if (f.toLowerCase().startsWith(p.toLowerCase() + '/')) return f.slice(p.length + 1);
+  }
+  return f;
 }
 
 const firstLine = (text: string, max = 120) => {
@@ -73,7 +79,7 @@ export function diffStat(lines: DiffLine[]): { add: number; del: number } {
   return { add: lines.filter(l => l.type === '+').length, del: lines.filter(l => l.type === '-').length };
 }
 
-export function describeTool(item: ToolItem, projectPath: string): ToolView {
+export function describeTool(item: ToolItem, projectPath: PathBase): ToolView {
   const input = item.input;
   const file = s(input.file_path || input.notebook_path || input.path);
   switch (item.name) {

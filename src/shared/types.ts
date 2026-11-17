@@ -26,6 +26,33 @@ export interface ConversationMeta {
   mode: ModeId;
   model: string;
   effort: Effort;
+  /** 在独立的 worktree 里干活（C3）；没有就是直接在项目文件夹里 */
+  worktree?: WorktreeInfo;
+}
+
+export interface WorktreeInfo {
+  /** worktree 的根目录 */
+  path: string;
+  /** 对话实际的工作目录（项目是仓库里的子目录时，是 worktree 里对应的子目录） */
+  cwd: string;
+  /** worktree 的分支，例如 claudex/1117-1530 */
+  branch: string;
+  /** 从哪个提交开始的 */
+  base: string;
+  /** 开始时本地在哪个分支上 */
+  baseBranch: string | null;
+  /** 已经接手到本地：worktree 删掉了，对话改在本地项目文件夹里继续 */
+  handedOff?: { at: number; files: number };
+}
+
+export interface HandoffResult {
+  /** 搬到本地的文件数 */
+  files: number;
+  /** 合并时有冲突的文件（已经写上冲突标记） */
+  conflicts: string[];
+  /** 存着接手时全部改动的分支 */
+  branch: string;
+  meta: ConversationMeta;
 }
 
 /** 保底黑名单：任何模式下都拦截的高危命令。pattern 是正则表达式源码。 */
@@ -288,7 +315,12 @@ export interface ClaudexApi {
   checkProject(path: string): Promise<ProjectCheck>;
   addProject(path: string): Promise<AppState>;
   removeProject(path: string): Promise<AppState>;
-  newConversation(projectPath: string): Promise<ConversationMeta>;
+  /** worktree：在新的 worktree 里开对话（C3） */
+  newConversation(projectPath: string, opts?: { worktree?: boolean }): Promise<ConversationMeta>;
+  /** 这个项目能不能开 worktree：能返回 null，不能返回原因 */
+  worktreeCheck(projectPath: string): Promise<string | null>;
+  /** 把 worktree 对话的改动搬到本地，删掉 worktree，对话改在本地继续 */
+  handoff(convId: string): Promise<HandoffResult>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

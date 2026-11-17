@@ -22,6 +22,7 @@ import type {
   PermissionDecision, PermissionRequest, SdkMessageLike, UsageInfo
 } from '../../shared/types';
 import { baseName, withAttachments } from '../../shared/attachments';
+import { convCwd } from '../../shared/conv';
 import { matchBlacklist } from '../guard/blacklist';
 import { SDK_MODE, skillsModeDecision, wrapForMode } from '../guard/modes';
 
@@ -133,7 +134,7 @@ export class ConvSession {
     const q = query({
       prompt: input,
       options: {
-        cwd: meta.projectPath,
+        cwd: convCwd(meta), // 在 worktree 里的对话就在 worktree 里干活（C3）
         model: meta.model,
         effort: meta.effort,
         permissionMode: SDK_MODE[meta.mode],
@@ -257,7 +258,7 @@ export class ConvSession {
     if (toolName === 'Read' && this.isAttached((input as { file_path?: unknown }).file_path)) return { behavior: 'allow', updatedInput: input };
     // Skills 配置模式：按规则自动放行或拒绝；提问和计划仍然要用户回答
     if (this.meta.mode === 'skills' && toolName !== 'AskUserQuestion' && toolName !== 'ExitPlanMode') {
-      const d = skillsModeDecision(toolName, input, this.meta.projectPath);
+      const d = skillsModeDecision(toolName, input, convCwd(this.meta));
       if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: input };
       if (d.behavior === 'deny') return { behavior: 'deny', message: d.message };
     }

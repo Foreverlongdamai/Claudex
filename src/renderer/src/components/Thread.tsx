@@ -1,9 +1,10 @@
 // 对话区：用户消息、Claude 的回复、思考、活动记录（工具调用）、审批卡片、提示。
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ModeId, PermissionRequest } from '@shared/types';
+import { convCwd } from '@shared/conv';
 import { useStore } from '../store';
 import type { Item } from '../timeline';
-import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine } from '../toolView';
+import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine, type PathBase } from '../toolView';
 import { FileChip } from './FileChip';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
@@ -82,7 +83,7 @@ function Todos({ item }: { item: ToolItem }) {
   );
 }
 
-function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: string }) {
+function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: PathBase }) {
   if (item.name === 'TodoWrite' && todosOf(item)) return <Todos item={item} />;
   const v = describeTool(item, projectPath);
   const running = item.status === 'running';
@@ -134,7 +135,7 @@ function toolTitle(r: PermissionRequest): string {
   }
 }
 
-function RequestPreview({ r, projectPath }: { r: PermissionRequest; projectPath: string }) {
+function RequestPreview({ r, projectPath }: { r: PermissionRequest; projectPath: PathBase }) {
   const input = r.input;
   if (r.toolName === 'Bash' || r.toolName === 'PowerShell') {
     return <><div className="ap-cmd">{String(input.command ?? '')}</div>{input.description ? <div className="ap-meta">{String(input.description)}</div> : null}</>;
@@ -155,7 +156,7 @@ function RequestPreview({ r, projectPath }: { r: PermissionRequest; projectPath:
   return <pre className="out">{JSON.stringify(input, null, 2)}</pre>;
 }
 
-function GenericApproval({ convId, item, projectPath }: { convId: string; item: ApprovalItem; projectPath: string }) {
+function GenericApproval({ convId, item, projectPath }: { convId: string; item: ApprovalItem; projectPath: PathBase }) {
   const respond = useStore(s => s.respond);
   const r = item.request;
   const [denying, setDenying] = useState(false);
@@ -277,7 +278,7 @@ function ResolvedApproval({ item }: { item: ApprovalItem }) {
   );
 }
 
-function ApprovalView({ convId, item, projectPath }: { convId: string; item: ApprovalItem; projectPath: string }) {
+function ApprovalView({ convId, item, projectPath }: { convId: string; item: ApprovalItem; projectPath: PathBase }) {
   if (item.resolved) return <ResolvedApproval item={item} />;
   if (item.request.toolName === 'ExitPlanMode') return <PlanApproval convId={convId} item={item} />;
   if (item.request.toolName === 'AskUserQuestion') return <QuestionCard convId={convId} item={item} />;
@@ -286,7 +287,7 @@ function ApprovalView({ convId, item, projectPath }: { convId: string; item: App
 
 // ---------------- 对话区 ----------------
 
-function ItemView({ item, convId, projectPath }: { item: Item; convId: string; projectPath: string }) {
+function ItemView({ item, convId, projectPath }: { item: Item; convId: string; projectPath: PathBase }) {
   switch (item.kind) {
     case 'user':
       return (
@@ -335,6 +336,7 @@ export function Thread() {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const items = conv?.timeline.items ?? [];
+  const bases: string[] = conv ? [convCwd(conv.meta), ...(conv.meta.worktree ? [conv.meta.worktree.cwd] : [])] : [];
 
   // 用户停在底部时，新内容出来就自动滚到底；往上翻看时不打扰
   useLayoutEffect(() => {
@@ -359,7 +361,7 @@ export function Thread() {
             <div className="hero-s">直接在下面输入。读文件、改文件、跑命令都会显示在这里；需要你同意的操作会先问你。</div>
           </div>
         ) : (
-          items.map(it => <ItemView key={it.id} item={it} convId={conv.meta.id} projectPath={conv.meta.projectPath} />)
+          items.map(it => <ItemView key={it.id} item={it} convId={conv.meta.id} projectPath={bases} />)
         )}
         {waiting && lastIsUser && <div className="act"><div className="act-head static"><span className="verb shimmer">{conv.status === 'starting' ? '正在启动 Claude Code' : '思考中'}</span></div></div>}
       </div>

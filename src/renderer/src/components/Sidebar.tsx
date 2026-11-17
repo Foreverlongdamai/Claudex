@@ -1,4 +1,5 @@
 // 左栏：新对话、（后续阶段的入口）、按项目分组的对话列表、设置和主题。
+import { inWorktree } from '@shared/conv';
 import { useStore } from '../store';
 import { pendingApprovals } from '../timeline';
 import { Icon } from './Icon';
@@ -62,9 +63,16 @@ export function Sidebar() {
                 const waiting = view && pendingApprovals(view.timeline) > 0;
                 return (
                   <div key={c.id} className={`sess${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" data-id={c.id} onClick={() => void openConversation(c.id)}>
+                    {inWorktree(c) && <span className="sess-wt" title={`在 worktree 里：${c.worktree!.branch}`}><Icon name="layers" size={13} /></span>}
                     <span className="t">{c.title}</span>
                     {waiting ? <i className="dot wait" title="等你审批" /> : running ? <i className="spin" title="正在运行" /> : view?.status === 'error' ? <i className="dot bad" title="出错了" /> : <span className="when">{when(c.updatedAt)}</span>}
-                    <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => { e.stopPropagation(); if (confirm(`删除对话「${c.title}」？\n只从 Claudex 的列表里删除，Claude Code 的会话记录还在。`)) void deleteConversation(c.id); }}><Icon name="x" size={13} /></button>
+                    <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => {
+                      e.stopPropagation();
+                      const ask = inWorktree(c)
+                        ? `删除对话「${c.title}」和它的 worktree？\n\nworktree 文件夹会被删掉；里面的改动先存到分支 ${c.worktree!.branch} 上，需要时还能找回。\n要保留改动到本地项目，请先点顶栏的“接手到本地”。`
+                        : `删除对话「${c.title}」？\n只从 Claudex 的列表里删除，Claude Code 的会话记录还在。`;
+                      if (confirm(ask)) void deleteConversation(c.id);
+                    }}><Icon name="x" size={13} /></button>
                   </div>
                 );
               })}

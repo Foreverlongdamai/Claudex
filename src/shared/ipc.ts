@@ -11,7 +11,8 @@ export const API_METHODS = [
   'newConversation', 'openConversation', 'deleteConversation', 'send', 'interrupt', 'setMode', 'setModel',
   'respondPermission', 'pendingMcp', 'setMcpApproval', 'listCommands', 'listFiles', 'gitBranch',
   'setPrefs', 'setTheme', 'openExternal', 'listShells', 'termOpen', 'termRestart', 'termKill', 'termRekey',
-  'gitStatus', 'gitDiff', 'gitStage', 'gitUnstage', 'gitRevert', 'gitCommit', 'gitInit', 'gitCheckBranch', 'gitWatch'
+  'gitStatus', 'gitDiff', 'gitStage', 'gitUnstage', 'gitRevert', 'gitCommit', 'gitInit', 'gitCheckBranch', 'gitWatch',
+  'worktreeCheck', 'handoff'
 ] as const satisfies ReadonlyArray<InvokeMethod>;
 
 export type ApiMethod = (typeof API_METHODS)[number];

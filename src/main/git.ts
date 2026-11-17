@@ -45,7 +45,12 @@ interface RunOpts {
 /** 只保留最后几行（git 的报错前面常有一堆提示） */
 const tail = (s: string, n = 8) => s.trim().split(/\r?\n/).slice(-n).join('\n');
 
-export function exec(cmd: string, args: string[], cwd: string, opts: RunOpts = {}): Promise<string> {
+export async function exec(cmd: string, args: string[], cwd: string, opts: RunOpts = {}): Promise<string> {
+  return (await execRaw(cmd, args, cwd, opts)).toString('utf8');
+}
+
+/** 和 exec 一样，但输出是原始字节（读文件内容时用，不做编码转换） */
+export function execRaw(cmd: string, args: string[], cwd: string, opts: RunOpts = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const env: Record<string, string | undefined> = {
       ...process.env,
@@ -56,6 +61,10 @@ export function exec(cmd: string, args: string[], cwd: string, opts: RunOpts = {
       ...opts.env
     };
     delete env.ELECTRON_RUN_AS_NODE;
+    if (!fs.existsSync(cwd)) {
+      reject(new GitError(`文件夹不存在：${cwd}`, '', 'ENOENT_CWD'));
+      return;
+    }
     let child;
     try {
       child = spawn(cmd, args, { cwd, env, windowsHide: true });
@@ -75,11 +84,11 @@ export function exec(cmd: string, args: string[], cwd: string, opts: RunOpts = {
     });
     child.on('close', code => {
       if (timer) clearTimeout(timer);
-      const stdout = Buffer.concat(out).toString('utf8');
+      const stdout = Buffer.concat(out);
       const stderr = Buffer.concat(err).toString('utf8');
       if (code === 0) resolve(stdout);
       else if (timedOut) reject(new GitError(`${cmd} ${args.find(a => !a.startsWith('-')) ?? ''} 超时了`, stderr, 'timeout'));
-      else reject(new GitError(tail(stderr || stdout) || `${cmd} 失败（退出码 ${code}）`, stderr, code));
+      else reject(new GitError(tail(stderr || stdout.toString('utf8')) || `${cmd} 失败（退出码 ${code}）`, stderr, code));
     });
     child.stdin.on('error', () => { /* 进程提前退出时写不进去，忽略 */ });
     child.stdin.end(opts.input ?? '');
@@ -88,6 +97,8 @@ export function exec(cmd: string, args: string[], cwd: string, opts: RunOpts = {
 
 export const git = (cwd: string, args: string[], opts?: RunOpts) =>
   exec('git', ['-c', 'core.quotepath=false', '-c', 'color.ui=never', ...args], cwd, opts);
+export const gitRaw = (cwd: string, args: string[], opts?: RunOpts) =>
+  execRaw('git', ['-c', 'core.quotepath=false', '-c', 'color.ui=never', ...args], cwd, opts);
 
 /** 一组路径交给 git：用标准输入传（不受命令行长度限制，中文、空格都没问题） */
 const pathsInput = (paths: string[]): RunOpts => ({ input: paths.join('\0'), literal: true });

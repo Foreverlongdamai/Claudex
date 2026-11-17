@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { EFFORTS, type AppState, type ConversationMeta, type Effort, type Prefs, type Project } from '../shared/types';
+import { EFFORTS, type AppState, type ConversationMeta, type Effort, type Prefs, type Project, type WorktreeInfo } from '../shared/types';
 import { DEFAULT_BLACKLIST } from './guard/blacklist';
 
 const MODEL_IDS: Record<string, string> = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
@@ -91,12 +91,13 @@ export class Store {
     this.save();
   }
 
-  newConversation(projectPath: string): ConversationMeta {
+  newConversation(projectPath: string, worktree?: WorktreeInfo): ConversationMeta {
     const { defaultMode, defaultModel, defaultEffort } = this.state.prefs;
     const now = Date.now();
     const meta: ConversationMeta = {
       id: randomUUID(), projectPath, title: '新对话', createdAt: now, updatedAt: now,
-      mode: defaultMode, model: defaultModel, effort: defaultEffort
+      mode: defaultMode, model: defaultModel, effort: defaultEffort,
+      ...(worktree ? { worktree } : {})
     };
     this.state.conversations.push(meta);
     this.save();

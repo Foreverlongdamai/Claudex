@@ -103,6 +103,13 @@ export class ReviewManager {
     else if (ev.kind === 'status' && ev.status === 'error' && this.running.has(ev.convId)) void this.turnEnd(ev.convId);
   }
 
+  /** 对话接手到本地以后：上一轮的快照改到本地仓库里去读（快照对象是共用的，路径都相对仓库根目录） */
+  moveConv(convId: string, root: string): void {
+    const t = this.turns[convId];
+    if (t) { this.turns[convId] = { ...t, root }; this.save(); }
+    this.starts.delete(convId);
+  }
+
   forget(convId: string): void {
     delete this.turns[convId];
     this.starts.delete(convId);

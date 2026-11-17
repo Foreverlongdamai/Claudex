@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { EFFORTS, type CommandInfo, type Effort, type FileAttachment, type ImageAttachment, type ModeId } from '@shared/types';
 import { DROP_EVENT, type DroppedFiles } from '../drop';
 import { MODES, MODE_ORDER } from '../modes';
-import { useCurrentSettings, useStore } from '../store';
+import { inWorktree } from '@shared/conv';
+import { useActiveCwd, useCurrentSettings, useStore } from '../store';
 import { FileChip } from './FileChip';
 import { Icon } from './Icon';
 
@@ -55,6 +56,50 @@ export function ModeMenu() {
           <div className="menu-sec">自定义</div>
           {MODE_ORDER.filter(m => MODES[m].group === 'custom').map(item)}
           <div className="menu-foot">Shift+Tab 依次切换</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 在哪里干活：本地项目文件夹，还是新的 worktree（C3）。只在还没发第一条消息时能选 */
+function PlaceMenu({ projectPath }: { projectPath: string }) {
+  const draft = useStore(s => s.draft);
+  const meta = useStore(s => (s.activeId ? s.convs[s.activeId]?.meta : null));
+  const setDraftPlace = useStore(s => s.setDraftPlace);
+  const [open, setOpen] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const ref = useOutsideClose(open, () => setOpen(false));
+  useEffect(() => {
+    if (open) void window.claudex.worktreeCheck(projectPath).then(setProblem).catch(() => setProblem(null));
+  }, [open, projectPath]);
+  if (meta) {
+    if (!meta.worktree) return null;
+    return inWorktree(meta)
+      ? <span className="uchip wt" title={`这个对话在独立的 worktree 里改代码：${meta.worktree.path}`} data-testid="place-chip"><Icon name="layers" size={14} />worktree</span>
+      : <span className="uchip" title={`原来在 worktree 里，已经接手到本地（分支 ${meta.worktree.branch} 里存着当时的改动）`}><Icon name="layers" size={14} />已接手</span>;
+  }
+  const place = draft?.place ?? 'local';
+  const pick = (p: 'local' | 'worktree') => { setOpen(false); setDraftPlace(p); };
+  return (
+    <div className="dd" ref={ref}>
+      <button className={`mchip${place === 'worktree' ? ' place-wt' : ''}`} data-testid="place-button" onClick={() => setOpen(o => !o)}>
+        <Icon name={place === 'worktree' ? 'layers' : 'folder'} size={14} />{place === 'worktree' ? '新 worktree' : '本地'}<Icon name="down" size={14} />
+      </button>
+      {open && (
+        <div className="menu">
+          <div className="menu-sec">这个对话在哪里改代码</div>
+          <button className={`mitem${place === 'local' ? ' on' : ''}`} data-place="local" onClick={() => pick('local')}>
+            <Icon name="folder" />
+            <span className="mi"><b>本地</b><span>直接改项目文件夹里的文件</span></span>
+            <Icon name="check" size={14} className="tick" />
+          </button>
+          <button className={`mitem${place === 'worktree' ? ' on' : ''}`} data-place="worktree" disabled={!!problem} onClick={() => pick('worktree')}>
+            <Icon name="layers" />
+            <span className="mi"><b>新 worktree</b><span>{problem ?? '在项目的独立副本里改，可以和别的对话同时改同一个项目；改完点“接手到本地”'}</span></span>
+            <Icon name="check" size={14} className="tick" />
+          </button>
+          <div className="menu-foot">worktree 从当前分支最新的提交开始，本地没提交的改动不会带过去</div>
         </div>
       )}
     </div>
@@ -154,7 +199,8 @@ export function Composer() {
   const status = useStore(s => (s.activeId ? s.convs[s.activeId]?.status : 'new'));
   const projectPath = useStore(s => (s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject) ?? null);
   const project = useStore(s => s.app?.projects.find(p => p.path === projectPath));
-  const branch = useStore(s => (projectPath ? s.branches[projectPath] : null));
+  const cwd = useActiveCwd();
+  const branch = useStore(s => (cwd ? s.branches[cwd] : null));
   const sentToken = useStore(s => s.sentToken);
   const send = useStore(s => s.send);
   const interrupt = useStore(s => s.interrupt);
@@ -236,7 +282,7 @@ export function Composer() {
       const items = [...starts, ...contains].slice(0, 30).map(c => ({ key: '/' + c.name, desc: c.description }));
       setPopup(items.length ? { kind: 'slash', items, sel: 0, start: 0, end: caret } : null);
     } else if (projectPath && (m = /(^|\s)@(\S*)$/.exec(before))) {
-      const files = await window.claudex.listFiles(projectPath, m[2]);
+      const files = await window.claudex.listFiles(cwd ?? projectPath, m[2]);
       const items = files.slice(0, 30).map(f => ({ key: '@' + f, desc: '' }));
       setPopup(items.length ? { kind: 'file', items, sel: 0, start: caret - m[2].length - 1, end: caret } : null);
     } else setPopup(null);
@@ -326,7 +372,8 @@ export function Composer() {
       <div className="under">
         <ModeMenu />
         {project && <span className="uchip" title={project.path}><Icon name="folder" size={14} />{project.name}</span>}
-        {branch && <span className="uchip" title="Git 分支"><Icon name="branch" size={14} />{branch}</span>}
+        {projectPath && <PlaceMenu projectPath={projectPath} />}
+        {branch && <span className="uchip" title="Git 分支" data-testid="branch-chip"><Icon name="branch" size={14} />{branch}</span>}
         <span className="sp" />
         <span className="uhint">Enter 发送 · Shift+Enter 换行 · Shift+Tab 切换模式</span>
       </div>

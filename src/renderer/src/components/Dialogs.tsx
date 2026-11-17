@@ -195,6 +195,30 @@ function PrBranchDialog({ cwd, message }: { cwd: string; message: string }) {
   );
 }
 
+/** 接手到本地的确认（C3） */
+function HandoffDialog({ convId }: { convId: string }) {
+  const { closeDialog, handoff } = useStore.getState();
+  const meta = useStore(s => s.convs[convId]?.meta);
+  const project = useStore(s => s.app?.projects.find(p => p.path === meta?.projectPath));
+  const wt = meta?.worktree;
+  if (!wt) return null;
+  return (
+    <Modal onClose={closeDialog}>
+      <h2><Icon name="download" />接手到本地？</h2>
+      <p>把 worktree <code>{wt.branch}</code> 里的全部改动（提交了的、没提交的、新文件）搬到本地项目文件夹「{project?.name}」，变成<b>未提交的改动</b>，你再在改动面板里审查、提交。</p>
+      <ul className="plain-list">
+        <li>本地已有的改动不受影响；同一处两边都改过时会写上冲突标记，让你来解决</li>
+        <li>然后删掉这个 worktree 的文件夹；分支 <code>{wt.branch}</code> 保留，里面存着接手时的全部改动</li>
+        <li>这个对话之后在本地项目文件夹里继续，聊天记录都在</li>
+      </ul>
+      <div className="mfoot">
+        <button className="btn" onClick={closeDialog}>取消</button>
+        <button className="btn primary" data-testid="handoff-confirm" onClick={() => void handoff(convId)}>接手到本地</button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Dialogs() {
   const d = useStore(s => s.dialog);
   if (!d) return null;
@@ -204,5 +228,6 @@ export function Dialogs() {
     case 'trust': return <TrustDialog />;
     case 'settings': return <SettingsDialog />;
     case 'pr-branch': return <PrBranchDialog cwd={d.cwd} message={d.message} />;
+    case 'handoff': return <HandoffDialog convId={d.convId} />;
   }
 }

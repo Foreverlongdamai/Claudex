@@ -711,6 +711,99 @@ await step('35 不是 Git 仓库的项目：面板里一键初始化', async () 
   if (!fs.existsSync(path.join(plain, '.git'))) throw new Error('没有初始化');
 });
 
+// ---------- C3：worktree 并行对话 ----------
+const wtParent = path.join(work, '.claudex-worktrees', 'demo-project');
+const convMeta = async id => (await win.evaluate(() => window.claudex.getState())).conversations.find(c => c.id === id);
+const activeConvId = () => win.locator('[data-testid=conversation-item].active').getAttribute('data-id');
+async function pickPlace(place) {
+  await win.locator('[data-testid=place-button]').click();
+  await win.locator(`.menu [data-place=${place}]`).click();
+  await waitFor(async () => (await win.locator('[data-testid=place-button]').innerText()).includes(place === 'worktree' ? '新 worktree' : '本地'), 3000, '位置选择');
+}
+let wtA, wtB;
+
+await step('36 新 worktree 对话：Claude 在 worktree 里改文件，本地项目文件夹不受影响', async () => {
+  gitOut('switch', '-q', 'main');
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await pickPlace('worktree');
+  await shot('36-place-menu');
+  await setMode('acceptEdits');
+  await sendMsg('Use the Write tool to create wt-note.txt containing exactly: from worktree\nDo not use Bash. Reply DONE.');
+  await win.waitForSelector('[data-testid=wt-chip]', { timeout: 30000 });
+  await waitTurn();
+  wtA = await activeConvId();
+  const meta = await convMeta(wtA);
+  if (!meta?.worktree || path.dirname(meta.worktree.path) !== wtParent) throw new Error('worktree 不在项目旁边的统一文件夹里：' + JSON.stringify(meta?.worktree));
+  if (!fs.existsSync(path.join(meta.worktree.path, 'wt-note.txt'))) throw new Error('worktree 里没有 Claude 写的文件');
+  if (fileExists('wt-note.txt')) throw new Error('本地项目文件夹被改了');
+  if (!(await win.locator('[data-testid=wt-chip]').innerText()).includes(meta.worktree.branch)) throw new Error('顶栏没显示 worktree 分支');
+  await waitFor(async () => (await win.locator('[data-testid=branch-chip]').innerText()).includes(meta.worktree.branch), 10000, '输入框下面显示 worktree 的分支');
+  if ((await win.locator(`[data-testid=conversation-item][data-id="${wtA}"] .sess-wt`).count()) !== 1) throw new Error('侧栏没标出 worktree 对话');
+  await scope('unstaged');
+  await waitFiles(['wt-note.txt'], '改动面板看的是 worktree 里的改动');
+  await shot('36-worktree-conv');
+});
+
+await step('37 两个 worktree 对话同时跑，互不干扰', async () => {
+  await win.locator('[data-testid=new-conversation]').click();
+  if (!(await win.locator('[data-testid=place-button]').innerText()).includes('本地')) throw new Error('新对话应该默认本地');
+  await pickPlace('worktree');
+  await setMode('acceptEdits');
+  await sendMsg('Use the Write tool to create b.txt containing exactly: from B\nDo not use Bash. Reply DONE.');
+  await win.waitForSelector('[data-testid=wt-chip]', { timeout: 30000 });
+  wtB = await activeConvId();
+  // B 还在跑的时候切到 A 再发一条
+  await win.locator(`[data-testid=conversation-item][data-id="${wtA}"]`).click();
+  await sendMsg('Use the Write tool to create a2.txt containing exactly: from A again\nDo not use Bash. Reply DONE.');
+  const [a, b] = [(await convMeta(wtA)).worktree.path, (await convMeta(wtB)).worktree.path];
+  if (a === b) throw new Error('两个对话用了同一个 worktree');
+  await waitFor(async () => fs.existsSync(path.join(a, 'a2.txt')) && fs.existsSync(path.join(b, 'b.txt')) && (await win.locator('.sess .spin').count()) === 0, 180000, '两个对话都做完');
+  if (fs.existsSync(path.join(a, 'b.txt')) || fs.existsSync(path.join(b, 'a2.txt')) || fs.existsSync(path.join(b, 'wt-note.txt'))) throw new Error('两个 worktree 串了');
+  if (fileExists('a2.txt') || fileExists('b.txt')) throw new Error('本地项目文件夹被改了');
+});
+
+await step('38 接手到本地：改动变成本地未提交的改动，worktree 删掉，对话在本地接着聊', async () => {
+  await win.locator(`[data-testid=conversation-item][data-id="${wtA}"]`).click();
+  await waitTurn();
+  const before = await convMeta(wtA);
+  await win.locator('[data-testid=handoff-button]').click();
+  await win.waitForSelector('[data-testid=handoff-confirm]');
+  await shot('38-handoff-confirm');
+  await win.locator('[data-testid=handoff-confirm]').click();
+  await waitOk('已接手到本地', 60000);
+  if (fs.readFileSync(path.join(project, 'wt-note.txt'), 'utf8').trim() !== 'from worktree' || !fileExists('a2.txt')) throw new Error('改动没搬到本地');
+  if (gitOut('status', '--porcelain', '--untracked-files=all').split('\n').filter(Boolean).sort().join('|') !== '?? a2.txt|?? wt-note.txt') throw new Error('本地应该只多了两个未提交的新文件：' + gitOut('status', '--porcelain'));
+  if (fs.existsSync(before.worktree.path)) throw new Error('worktree 没删掉');
+  if (!gitOut('show', '--name-only', '--format=', before.worktree.branch).includes('wt-note.txt')) throw new Error('分支上没存着改动');
+  if (await win.locator('[data-testid=wt-chip]').count()) throw new Error('顶栏还显示 worktree');
+  if (!(await win.locator('[data-testid=place-chip], .uchip', { hasText: '已接手' }).count())) throw new Error('输入框下面没显示“已接手”');
+  await waitFiles(['a2.txt', 'wt-note.txt'], '改动面板里看到搬过来的改动');
+  await shot('38-handed-off');
+  await sendMsg('Read wt-note.txt in the current directory and reply with its exact content only.');
+  await waitTurn();
+  if (!(await lastAssistant()).includes('from worktree')) throw new Error('接手后接着聊不对：' + (await lastAssistant()));
+});
+
+await step('39 删除 worktree 对话：改动先存到分支上，再删掉 worktree', async () => {
+  const meta = await convMeta(wtB);
+  win.once('dialog', d => void d.accept());
+  const row = win.locator(`[data-testid=conversation-item][data-id="${wtB}"]`);
+  await row.hover();
+  await row.locator('.sess-del').click();
+  await waitFor(async () => (await win.locator(`[data-testid=conversation-item][data-id="${wtB}"]`).count()) === 0, 30000, '对话从列表里消失');
+  if (fs.existsSync(meta.worktree.path)) throw new Error('worktree 没删掉');
+  if (gitOut('show', `${meta.worktree.branch}:b.txt`) !== 'from B') throw new Error('分支上没存着 b.txt');
+  if (fs.existsSync(wtParent)) throw new Error('worktree 都删光了，空文件夹应该一起删掉');
+});
+
+await step('40 还没有提交的仓库不能开 worktree，并说明原因', async () => {
+  await win.locator('.proj-head', { hasText: 'plain-project' }).click();
+  await win.locator('[data-testid=place-button]').click();
+  const opt = win.locator('.menu [data-place=worktree]');
+  await waitFor(async () => (await opt.isDisabled()) && (await opt.innerText()).includes('提交'), 5000, 'worktree 选项不能选，并说明原因');
+  await win.keyboard.press('Escape');
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));

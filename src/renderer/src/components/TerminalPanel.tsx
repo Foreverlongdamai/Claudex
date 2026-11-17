@@ -6,7 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { ShellInfo, ShellKind, TermInfo } from '@shared/types';
 import { TERM_DROP_EVENT, type DroppedFiles } from '../drop';
-import { useStore } from '../store';
+import { useActiveCwd, useStore } from '../store';
 import { Icon } from './Icon';
 
 const api = window.claudex;
@@ -44,7 +44,7 @@ function savedHeight(): number {
 export function TerminalPanel() {
   const open = useStore(s => s.terminalOpen);
   const key = useStore(s => s.activeId ?? (s.activeProject ? `project:${s.activeProject}` : null));
-  const cwd = useStore(s => (s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject) ?? null);
+  const cwd = useActiveCwd(); // worktree 对话的终端就在它的 worktree 里
   const shellPref = useStore(s => s.app?.prefs.terminalShell ?? 'powershell');
   const theme = useStore(s => s.app?.prefs.theme ?? 'dark');
   const host = useRef<HTMLDivElement>(null);
