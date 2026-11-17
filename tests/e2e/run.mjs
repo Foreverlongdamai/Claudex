@@ -55,7 +55,9 @@ async function launch() {
     args: ['.'], cwd: root,
     env: {
       ...process.env, CLAUDEX_USER_DATA: userData,
-      CLAUDEX_GH: path.join(root, 'tests', 'unit', 'fake-gh.mjs'), CLAUDEX_GH_LOG: ghLog, CLAUDEX_TRASH_DIR: trashDir
+      CLAUDEX_GH: path.join(root, 'tests', 'unit', 'fake-gh.mjs'), CLAUDEX_GH_LOG: ghLog, CLAUDEX_TRASH_DIR: trashDir,
+      // 自动化：每 2 秒检查一次到点没有；不弹系统通知
+      CLAUDEX_AUTOMATION_TICK_MS: '2000', CLAUDEX_NO_NOTIFY: '1'
     }
   });
   win = await app.firstWindow();
@@ -1111,6 +1113,127 @@ await step('55 任务看板上停止一个正在做的任务，派活的主对�
   await waitFor(async () => (await resultCards().count()) > before, 60000, '主对话收到结果');
   const card = await resultCards().last().innerText();
   if (!card.includes('没做完') || !card.includes('用户停止了这个任务')) throw new Error('主对话没收到“没做完 / 用户停止了”：' + card);
+});
+
+// ---------- 自动化（C4） ----------
+const autoState = () => win.evaluate(() => window.claudex.listAutomations());
+/** 等某次运行到某个状态 */
+async function waitRun(pick, statuses, timeout = 240000, label = '运行') {
+  let r;
+  await waitFor(async () => (r = pick((await autoState()).runs)) && statuses.includes(r.status), timeout, `${label}：${statuses.join('/')}（现在 ${r?.status}）`);
+  return r;
+}
+async function openAutomation() {
+  if (!(await win.locator('[data-testid=automation-view]').count())) await win.locator('[data-testid=automation-button]').click();
+  await win.waitForSelector('[data-testid=automation-view]');
+}
+let auto1;
+
+await step('56 自动化：新建（每天 08:00、新 worktree），保存并试跑一次，跑完进审查队列，打开看结果', async () => {
+  await openAutomation();
+  await shot('56-empty');
+  await win.locator('[data-testid=automation-new]').click();
+  await win.locator('[data-testid=af-name]').fill('每日问候');
+  await win.locator('[data-testid=af-project]').selectOption({ label: 'demo-project' });
+  await win.locator('[data-testid=af-prompt]').fill('Create a file named auto-hello.txt containing exactly: hello from automation. Then reply with exactly: AUTO-OK');
+  await win.locator('[data-testid=af-time]').fill('08:00');
+  await shot('56-form');
+  await win.locator('[data-testid=af-save-run]').click();
+  await win.waitForSelector('[data-testid=automation-row]');
+  const a = (await autoState()).automations.find(x => x.name === '每日问候');
+  if (!a || a.place !== 'worktree' || a.mode !== 'bypassPermissions' || !a.enabled || !a.nextRunAt) throw new Error('自动化没存对：' + JSON.stringify(a));
+  if (new Date(a.nextRunAt).getHours() !== 8 || new Date(a.nextRunAt).getMinutes() !== 0 || a.nextRunAt <= Date.now()) throw new Error('下次运行的时刻不对：' + new Date(a.nextRunAt));
+  auto1 = a.id;
+  const r = await waitRun(rs => rs.find(x => x.automationId === a.id), ['done', 'failed'], 300000, '试跑');
+  if (r.status !== 'done' || r.trigger !== 'manual' || !/AUTO-OK/.test(r.summary ?? '')) throw new Error('试跑的结果不对：' + JSON.stringify(r));
+  if (fileExists('auto-hello.txt')) throw new Error('在 worktree 里跑的自动化不该改本地文件');
+  const meta = await convMeta(r.convId);
+  if (!meta?.worktree || !fs.existsSync(path.join(meta.worktree.cwd, 'auto-hello.txt'))) throw new Error('worktree 里没有 Claude 写的文件：' + JSON.stringify(meta?.worktree));
+  if (await win.locator(`[data-testid=conversation-item][data-id="${r.convId}"]`).count()) throw new Error('自动化的对话不该出现在左栏的对话列表里');
+  await waitFor(async () => (await win.locator(`[data-testid=queue-item][data-run="${r.id}"][data-status=done]`).count()) === 1, 5000, '审查队列里有这次运行');
+  await waitFor(async () => (await win.locator('[data-testid=automation-badge]').innerText()).trim() === '1', 5000, '左栏“自动化”上显示 1');
+  await shot('56-queue');
+  await win.locator(`[data-testid=queue-item][data-run="${r.id}"] [data-testid=queue-open]`).click();
+  await waitFor(async () => (await win.locator('[data-testid=automation-chip]').count()) === 1, 10000, '打开这次运行的对话，顶栏标着自动化');
+  await waitFor(async () => (await lastAssistant()).includes('AUTO-OK'), 20000, '对话里有 Claude 的回复');
+  await waitFor(async () => (await autoState()).runs.find(x => x.id === r.id)?.read === true, 5000, '打开后标为已读');
+  await waitFor(async () => (await win.locator('[data-testid=automation-badge]').count()) === 0, 5000, '左栏的数字没了');
+  await shot('56-run-conv');
+});
+
+await step('57 自动化按时运行：每小时的某一分钟到点自动跑；停用后不再有下次', async () => {
+  await openAutomation();
+  const now = new Date();
+  const target = new Date(now.getTime() + (now.getSeconds() > 45 ? 120000 : 60000));
+  await win.locator('[data-testid=automation-new]').click();
+  await win.locator('[data-testid=af-name]').fill('整点报时');
+  await win.locator('[data-testid=af-project]').selectOption({ label: 'demo-project' });
+  await win.locator('[data-testid=af-prompt]').fill('Reply with exactly: TICK-OK');
+  await win.locator('[data-testid=af-kind]').selectOption('hourly');
+  await win.locator('[data-testid=af-minute]').fill(String(target.getMinutes()));
+  await win.locator('[data-testid=af-place]').selectOption('local');
+  await win.locator('[data-testid=af-save]').click();
+  await waitFor(async () => (await win.locator('[data-testid=automation-row]').count()) === 2, 5000, '表里有两个自动化');
+  const a = (await autoState()).automations.find(x => x.name === '整点报时');
+  if (!a?.nextRunAt || new Date(a.nextRunAt).getMinutes() !== target.getMinutes()) throw new Error('下次运行的时刻不对：' + JSON.stringify(a));
+  if ((await autoState()).runs.some(x => x.automationId === a.id)) throw new Error('只保存不该马上跑');
+  const r = await waitRun(rs => rs.find(x => x.automationId === a.id), ['done', 'failed'], 300000, '到点运行');
+  if (r.status !== 'done' || r.trigger !== 'schedule' || !/TICK-OK/.test(r.summary ?? '')) throw new Error('按时运行的结果不对：' + JSON.stringify(r));
+  if (r.startedAt < a.nextRunAt) throw new Error('没到点就跑了');
+  const after = (await autoState()).automations.find(x => x.id === a.id);
+  if (!after.nextRunAt || after.nextRunAt - a.nextRunAt !== 3600000) throw new Error('下一次应该是一小时后：' + JSON.stringify(after));
+  await win.locator(`[data-testid=automation-row][data-automation="${a.id}"] [data-testid=automation-enabled]`).click();
+  await waitFor(async () => { const x = (await autoState()).automations.find(y => y.id === a.id); return !x.enabled && !x.nextRunAt; }, 5000, '停用后没有下次运行');
+  await shot('57-scheduled');
+});
+
+await step('58 没人看着时需要审批：这次运行暂停，进审查队列，去处理后接着跑完', async () => {
+  await openAutomation();
+  await win.evaluate(p => window.claudex.saveAutomation({
+    name: '写探针', projectPath: p, place: 'local', mode: 'default', enabled: true, schedule: { kind: 'daily', time: '03:00' },
+    prompt: 'Use the Bash tool to run exactly this command: node -e "require(\'fs\').writeFileSync(\'auto-probe.txt\', \'ok\')"\nThen reply with exactly: PROBE-OK'
+  }), project);
+  const a = (await autoState()).automations.find(x => x.name === '写探针');
+  await win.locator(`[data-testid=automation-row][data-automation="${a.id}"] [data-testid=automation-run]`).click();
+  const r = await waitRun(rs => rs.find(x => x.automationId === a.id), ['waiting', 'done', 'failed'], 180000, '等审批');
+  if (r.status !== 'waiting') throw new Error('应该暂停等审批：' + JSON.stringify(r));
+  await waitFor(async () => (await win.locator(`[data-testid=queue-item][data-run="${r.id}"] [data-testid=queue-open]`).innerText()).includes('去处理'), 5000, '队列里显示“去处理”');
+  await shot('58-waiting');
+  await win.locator(`[data-testid=queue-item][data-run="${r.id}"] [data-testid=queue-open]`).click();
+  const allow = win.locator('[data-testid=approval] button', { hasText: '允许一次' });
+  await allow.first().waitFor({ timeout: 20000 });
+  await allow.first().click();
+  const done = await waitRun(rs => rs.find(x => x.id === r.id), ['done', 'failed'], 180000, '审批后跑完');
+  if (done.status !== 'done' || !/PROBE-OK/.test(done.summary ?? '')) throw new Error('审批后没跑完：' + JSON.stringify(done));
+  if (!fileExists('auto-probe.txt')) throw new Error('命令没执行');
+  fs.rmSync(path.join(project, 'auto-probe.txt'), { force: true });
+});
+
+await step('59 关掉窗口缩到托盘，后台照样运行；从托盘打开回来', async () => {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await waitFor(async () => (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)) === 1 && !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())), 5000, '窗口藏到托盘');
+  const before = (await autoState()).runs.length;
+  await win.evaluate(id => window.claudex.runAutomation(id), auto1);
+  const r = await waitRun(rs => rs.length > before ? rs[rs.length - 1] : null, ['done', 'failed'], 300000, '窗口藏起来时运行');
+  if (r.status !== 'done') throw new Error('后台运行没跑完：' + JSON.stringify(r));
+  await app.evaluate(() => globalThis.claudexTray.automation());
+  await waitFor(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), 5000, '从托盘打开窗口');
+  await win.waitForSelector('[data-testid=automation-view]');
+  await shot('59-from-tray');
+});
+
+await step('60 App 关着时错过的运行：下次打开补跑一次', async () => {
+  await app.close();
+  const file = path.join(userData, 'claudex-automations.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.automations.find(x => x.id === auto1).nextRunAt = Date.now() - 3 * 3600000;
+  fs.writeFileSync(file, JSON.stringify(data));
+  await launch();
+  const r = await waitRun(rs => rs.find(x => x.automationId === auto1 && x.trigger === 'catchup'), ['done', 'failed'], 300000, '补跑');
+  if (r.status !== 'done') throw new Error('补跑没跑完：' + JSON.stringify(r));
+  const a = (await autoState()).automations.find(x => x.id === auto1);
+  if (!a.nextRunAt || a.nextRunAt <= Date.now()) throw new Error('补跑后下一次的时刻不对');
+  if ((await autoState()).runs.filter(x => x.automationId === auto1 && x.trigger === 'catchup').length !== 1) throw new Error('只该补跑一次');
 });
 
 await app.close();

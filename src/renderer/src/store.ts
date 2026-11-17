@@ -1,7 +1,7 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, CommandInfo, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  Automation, AutomationRun, AutomationState, AppState, CommandInfo, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { convCwd } from '@shared/conv';
@@ -28,6 +28,7 @@ export type Dialog =
   | { kind: 'handoff'; convId: string }
   /** 新建或修改员工档案；profile 为 null 是招新员工 */
   | { kind: 'employee'; projectPath: string; profile: EmployeeProfile | null }
+  | { kind: 'automation'; automation: Automation | null }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -123,9 +124,9 @@ interface UiState {
   newEmployeeChat(projectPath: string, employeeId: string): Promise<void>;
   saveEmployee(projectPath: string, profile: EmployeeProfile, isNew: boolean): Promise<boolean>;
   deleteEmployee(projectPath: string, id: string): Promise<void>;
-  /** 主区域显示对话，还是任务看板 */
-  view: 'chat' | 'board';
-  setView(view: 'chat' | 'board'): void;
+  /** 主区域显示对话、任务看板，还是自动化 */
+  view: View;
+  setView(view: View): void;
   /** 项目路径 → 能用的 Skills（全局、项目、插件） */
   skills: Record<string, CommandInfo[]>;
   loadSkills(projectPath: string): Promise<void>;
@@ -136,7 +137,21 @@ interface UiState {
   setProjectEnv(projectPath: string, prefix: string | null): Promise<void>;
   /** 接手到本地（C3） */
   handoff(convId: string): Promise<void>;
+  // ---- 自动化（C4） ----
+  automation: AutomationState | null;
+  loadAutomations(): Promise<void>;
+  /** 保存（runNow 时保存后马上跑一次）；出错返回原因 */
+  saveAutomation(a: Parameters<typeof api.saveAutomation>[0], runNow: boolean): Promise<string | null>;
+  deleteAutomation(id: string): Promise<void>;
+  setAutomationEnabled(id: string, enabled: boolean): Promise<void>;
+  runAutomation(id: string): Promise<void>;
+  markRunRead(runId: string): Promise<void>;
+  /** 打开这次运行的对话（跑完的顺便标为已读） */
+  openRun(r: AutomationRun): Promise<void>;
+  deleteRun(runId: string): Promise<void>;
 }
+
+export type View = 'chat' | 'board' | 'automation';
 
 let toastSeq = 0;
 /**
@@ -192,6 +207,7 @@ export const useStore = create<UiState>((set, get) => {
     tasks: {},
     view: 'chat',
     skills: {},
+    automation: null,
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -203,6 +219,7 @@ export const useStore = create<UiState>((set, get) => {
       if (firstProject) void get().refreshBranch(firstProject);
       void get().loadConda();
       for (const p of app.projects) void get().loadTeam(p.path);
+      void get().loadAutomations();
       // 模型列表要起一个 Claude Code 进程去查，放后台
       api.listModels()
         .then(models => set({ models, modelsError: null }))
@@ -210,6 +227,15 @@ export const useStore = create<UiState>((set, get) => {
     },
 
     onEvent(ev) {
+      if (ev.kind === 'automation') {
+        set({ automation: ev.state });
+        return;
+      }
+      if (ev.kind === 'navigate') {
+        if (ev.to === 'automation') set({ view: 'automation', dialog: null });
+        else void get().openConversation(ev.convId);
+        return;
+      }
       if (ev.kind === 'task') {
         set(s => ({ tasks: { ...s.tasks, [ev.task.id]: ev.task } }));
         return;
@@ -532,6 +558,66 @@ export const useStore = create<UiState>((set, get) => {
         get().toast(`已停止任务 #${taskId}`);
       } catch (e) {
         get().toast(`停不下来：${errText(e)}`);
+      }
+    },
+
+    async loadAutomations() {
+      try {
+        set({ automation: await api.listAutomations() });
+      } catch (e) {
+        get().toast(`读取自动化失败：${errText(e)}`);
+      }
+    },
+
+    async saveAutomation(a, runNow) {
+      try {
+        const st = await api.saveAutomation(a);
+        set({ automation: st, dialog: null });
+        const saved = a.id ? st.automations.find(x => x.id === a.id) : st.automations[st.automations.length - 1];
+        get().toast(a.id ? `已保存「${a.name}」` : `已新建自动化「${a.name}」`);
+        if (runNow && saved) await get().runAutomation(saved.id);
+        return null;
+      } catch (e) {
+        return errText(e);
+      }
+    },
+
+    async deleteAutomation(id) {
+      set({ automation: await api.deleteAutomation(id) });
+    },
+
+    async setAutomationEnabled(id, enabled) {
+      try {
+        set({ automation: await api.setAutomationEnabled(id, enabled) });
+      } catch (e) {
+        get().toast(errText(e));
+      }
+    },
+
+    async runAutomation(id) {
+      try {
+        await api.runAutomation(id);
+        get().toast('开始运行，跑完会出现在审查队列里');
+      } catch (e) {
+        get().toast(`没有跑起来：${errText(e)}`);
+      }
+    },
+
+    async markRunRead(runId) {
+      set({ automation: await api.markRunRead(runId) });
+    },
+
+    async openRun(r) {
+      if (!r.convId) return;
+      await get().openConversation(r.convId);
+      if (r.status === 'done' || r.status === 'failed') await get().markRunRead(r.id);
+    },
+
+    async deleteRun(runId) {
+      try {
+        set({ automation: await api.deleteRun(runId) });
+      } catch (e) {
+        get().toast(`删除失败：${errText(e)}`);
       }
     },
 

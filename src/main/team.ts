@@ -149,6 +149,11 @@ export class TeamManager {
     return this.tasks.filter(t => samePath(t.projectPath, projectPath));
   }
 
+  /** 这个对话派出去、还没交回的活（包括转交给别人的） */
+  activeFrom(convId: string): number {
+    return this.tasks.filter(t => t.fromConvId === convId && (t.status === 'running' || t.status === 'waiting')).length;
+  }
+
   private task(id: string | undefined): TeamTask | undefined {
     return id ? this.tasks.find(t => t.id === String(id).replace(/^#/, '')) : undefined;
   }

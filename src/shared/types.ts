@@ -48,9 +48,56 @@ export interface ConversationMeta {
   employee?: { id: string };
   /** 员工在派活的主对话的目录里干活（主对话在 worktree 里时就是那个 worktree） */
   workdir?: string;
+  /** 自动化的一次运行（C4）：不在左栏的对话列表里，从“自动化”的审查队列打开 */
+  automation?: { id: string; runId: string; name: string };
 }
 
 export type { EmployeeProfile, MemoryScope } from './profile';
+export type { Schedule, ScheduleKind } from './schedule';
+
+/** 自动化（C4）：按计划让 Claude 自动跑任务 */
+export interface Automation {
+  id: string;
+  name: string;
+  projectPath: string;
+  /** 要 Claude 做什么（每次运行发给 Claude 的消息） */
+  prompt: string;
+  schedule: import('./schedule').Schedule;
+  /** worktree：每次在新的 worktree 里跑（推荐，不碰本地文件）；local：直接在项目文件夹里跑 */
+  place: 'worktree' | 'local';
+  mode: ModeId;
+  model?: string;
+  effort?: Effort;
+  enabled: boolean;
+  createdAt: number;
+  /** 下一次按计划运行的时刻（停用时没有） */
+  nextRunAt?: number;
+}
+
+/** 自动化的一次运行：一个新对话；跑完进审查队列 */
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  /** 运行时自动化的名字 */
+  name: string;
+  projectPath: string;
+  convId: string;
+  /** 按计划 / 用户点了“现在跑一次” / App 没开时错过了，开 App 后补跑 */
+  trigger: 'schedule' | 'manual' | 'catchup';
+  /** running 在跑；waiting 暂停了，等用户审批或回答；done 跑完；failed 出错 */
+  status: 'running' | 'waiting' | 'done' | 'failed';
+  startedAt: number;
+  endedAt?: number;
+  /** Claude 最后的回复（摘要） */
+  summary?: string;
+  /** 在审查队列里处理过了（看过、标为已读、忽略） */
+  read: boolean;
+}
+
+export interface AutomationState {
+  automations: Automation[];
+  runs: AutomationRun[];
+}
 
 export interface TeamTask {
   /** 任务编号，显示成 #12 */
@@ -169,6 +216,8 @@ export interface Prefs {
   terminalShell: ShellKind;
   /** 改动面板的宽度（像素） */
   reviewWidth: number;
+  /** 关掉窗口时缩到托盘，在后台运行（自动化要按时跑） */
+  closeToTray: boolean;
 }
 
 export interface AppState {
@@ -361,7 +410,11 @@ export type ConvEvent =
   /** 任务开始、完成 */
   | { kind: 'task'; task: TeamTask }
   /** 项目的员工档案变了 */
-  | { kind: 'team'; projectPath: string };
+  | { kind: 'team'; projectPath: string }
+  /** 自动化或者它的运行记录变了（整份发过来，数据不大） */
+  | { kind: 'automation'; state: AutomationState }
+  /** 主进程要界面打开某个页面（托盘菜单、系统通知被点了） */
+  | { kind: 'navigate'; to: 'automation' } | { kind: 'navigate'; to: 'conversation'; convId: string };
 
 export interface OpenedConversation {
   meta: ConversationMeta;
@@ -406,6 +459,18 @@ export interface ClaudexApi {
   listSkills(projectPath: string): Promise<CommandInfo[]>;
   /** 停止一个正在做的任务 */
   stopTask(taskId: string): Promise<void>;
+  // ---- 自动化（C4） ----
+  listAutomations(): Promise<AutomationState>;
+  /** 新建（没有 id）或修改；设置不对时报错 */
+  saveAutomation(a: Omit<Automation, 'id' | 'createdAt' | 'nextRunAt'> & { id?: string }): Promise<AutomationState>;
+  deleteAutomation(id: string): Promise<AutomationState>;
+  setAutomationEnabled(id: string, enabled: boolean): Promise<AutomationState>;
+  /** 现在跑一次（不影响计划） */
+  runAutomation(id: string): Promise<AutomationRun>;
+  /** 审查队列里标为已读（或忽略） */
+  markRunRead(runId: string): Promise<AutomationState>;
+  /** 删掉一次运行的记录和它的对话（worktree 里的改动先存到分支上） */
+  deleteRun(runId: string): Promise<AutomationState>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

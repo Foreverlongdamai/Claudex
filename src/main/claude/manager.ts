@@ -87,6 +87,8 @@ export class SessionManager {
 
   /** 正在回复或者在等审批 */
   isBusy(convId: string): boolean { return this.sessions.get(convId)?.busy ?? false; }
+  /** 还没回答的审批、提问 */
+  pendingCount(convId: string): number { return this.sessions.get(convId)?.pendingRequests().length ?? 0; }
   interrupt(convId: string) { return this.sessions.get(convId)?.interrupt(); }
   setMode(convId: string, mode: Parameters<ConvSession['setMode']>[0]) { return this.session(convId).setMode(mode); }
   setModel(convId: string, model: string, effort: Parameters<ConvSession['setModel']>[1]) { return this.session(convId).setModel(model, effort); }

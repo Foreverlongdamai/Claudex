@@ -36,7 +36,8 @@ function defaultPrefs(): Prefs {
     skipBypassConfirm: false,
     blacklist: DEFAULT_BLACKLIST,
     terminalShell: 'powershell',
-    reviewWidth: 460
+    reviewWidth: 460,
+    closeToTray: true
   };
 }
 

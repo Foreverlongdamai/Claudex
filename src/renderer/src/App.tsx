@@ -4,6 +4,7 @@ import { Composer } from './components/Composer';
 import { Dialogs } from './components/Dialogs';
 import { ReviewPanel } from './components/ReviewPanel';
 import { TaskBoard } from './components/Board';
+import { AutomationView } from './components/Automation';
 import { Sidebar } from './components/Sidebar';
 import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
@@ -95,7 +96,7 @@ export function App() {
       <Sidebar />
       <div className="mainwrap">
         <TopBar />
-        {view === 'board' && hasProjects ? <div className="content"><TaskBoard /></div> : (
+        {view === 'automation' ? <div className="content"><AutomationView /></div> : view === 'board' && hasProjects ? <div className="content"><TaskBoard /></div> : (
         <div className="content">
         <main className="chat" {...(hasProjects ? dropHandlers : {})}>
           {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}

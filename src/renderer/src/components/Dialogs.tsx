@@ -5,10 +5,11 @@ import { MODES, MODE_ORDER } from '../modes';
 import { useStore } from '../store';
 import { Icon } from './Icon';
 import { EmployeeEditor } from './Team';
+import { AutomationForm } from './Automation';
 
 const EFFORT_LABEL: Record<Effort, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' };
 
-function Modal({ children, wide, onClose }: { children: ReactNode; wide?: boolean; onClose: () => void }) {
+export function Modal({ children, wide, onClose }: { children: ReactNode; wide?: boolean; onClose: () => void }) {
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal${wide ? ' wide' : ''}`} role="dialog">{children}</div>
@@ -150,6 +151,8 @@ function SettingsDialog() {
           </select></div></div>
         <div className="row"><div className="lbl">同时运行的对话上限<small>每个约占 250 MB 内存</small></div><div className="val">
           <input type="number" min={1} max={16} value={prefs.maxLiveSessions} onChange={e => void setPrefs({ maxLiveSessions: Math.max(1, Math.min(16, Number(e.target.value) || 4)) })} style={{ width: 80 }} /></div></div>
+        <div className="row"><div className="lbl">关掉窗口时缩到托盘<small>在后台运行，自动化才能按时执行</small></div><div className="val">
+          <button className={`mini-sw${prefs.closeToTray ? ' on' : ''}`} data-testid="pref-tray" onClick={() => void setPrefs({ closeToTray: !prefs.closeToTray })} /></div></div>
         <div className="row"><div className="lbl">主题</div><div className="val">
           <select value={prefs.theme} onChange={e => void setTheme(e.target.value as 'dark' | 'light')}><option value="dark">深色</option><option value="light">浅色</option></select></div></div>
         <div className="row"><div className="lbl">API</div><div className="val">{env?.relayHost ? `走中转：${env.relayHost}（令牌在 Claude Code 的设置里，Claudex 不读取也不保存）` : '直连 Anthropic API'}</div></div>
@@ -231,5 +234,6 @@ export function Dialogs() {
     case 'pr-branch': return <PrBranchDialog cwd={d.cwd} message={d.message} />;
     case 'handoff': return <HandoffDialog convId={d.convId} />;
     case 'employee': return <Modal wide onClose={useStore.getState().closeDialog}><EmployeeEditor projectPath={d.projectPath} profile={d.profile} /></Modal>;
+    case 'automation': return <AutomationForm automation={d.automation} />;
   }
 }

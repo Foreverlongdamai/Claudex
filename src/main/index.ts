@@ -1,5 +1,5 @@
 // Claudex 主进程：窗口、IPC、对话进程管理。
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type Tray } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,8 @@ import { TeamManager } from './team';
 import type { CondaInfo, ConversationMeta } from '../shared/types';
 import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
+import { AutomationManager } from './automation';
+import { appIcon, createTray } from './tray';
 
 // 自动化测试用独立的数据目录，不碰用户真实的数据
 if (process.env.CLAUDEX_USER_DATA) app.setPath('userData', process.env.CLAUDEX_USER_DATA);
@@ -37,12 +39,39 @@ let manager: SessionManager;
 let terminals: TerminalManager;
 let review: ReviewManager;
 let team: TeamManager;
+let automation: AutomationManager;
+let tray: Tray | null = null;
+/** 真的要退出了（托盘菜单的退出、系统关机）：关窗口不再缩到托盘 */
+let quitting = false;
 
 const emit = (ev: ConvEvent) => {
   win?.webContents.send(EVENT_CHANNEL, ev);
   review?.onConvEvent(ev); // 一轮结束时给“上一轮”拍结束快照
   team?.onConvEvent(ev); // 员工的一轮结束：任务完成，结果送回派活的主对话
+  automation?.onConvEvent(ev); // 自动化的运行：跑完、暂停等审批
 };
+
+/** 显示窗口（从托盘、系统通知回来）；可以顺便打开某个页面 */
+function showWindow(nav?: Extract<ConvEvent, { kind: 'navigate' }>): void {
+  if (!win) createWindow();
+  if (win!.isMinimized()) win!.restore();
+  win!.show();
+  win!.focus();
+  if (nav) {
+    const send = () => win?.webContents.send(EVENT_CHANNEL, nav);
+    if (win!.webContents.isLoading()) win!.webContents.once('did-finish-load', send);
+    else send();
+  }
+}
+
+/** 系统通知（窗口在前台时不弹；自动化测试设 CLAUDEX_NO_NOTIFY 不弹） */
+function notify(title: string, body: string, convId: string): void {
+  if (process.env.CLAUDEX_NO_NOTIFY || !Notification.isSupported()) return;
+  if (win?.isVisible() && win.isFocused()) return;
+  const n = new Notification({ title, body, icon: appIcon(64, 1) });
+  n.on('click', () => showWindow({ kind: 'navigate', to: 'conversation', convId }));
+  n.show();
+}
 const gitBash = () => detectGitBash(store.state.prefs.gitBashPath);
 /** 撤销新文件：移到回收站，不直接删（自动化测试设 CLAUDEX_TRASH_DIR，移到那个目录，不碰系统回收站） */
 const trash = async (p: string) => {
@@ -149,6 +178,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     title: 'Claudex',
+    icon: appIcon(64, 1),
     backgroundColor: TITLE_BAR[theme].color,
     // 隐藏系统标题栏，用自己的顶栏；右上角的最小化/最大化/关闭仍由 Windows 绘制
     titleBarStyle: 'hidden',
@@ -173,7 +203,38 @@ function createWindow(): void {
   });
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else void win.loadFile(path.join(here, '../renderer/index.html'));
+  // 关窗口：缩到托盘，在后台运行（自动化要按时跑）；第一次缩的时候提示一下
+  win.on('close', e => {
+    if (quitting || !store.state.prefs.closeToTray) return;
+    e.preventDefault();
+    win?.hide();
+    if (!trayHinted && tray && !process.env.CLAUDEX_NO_NOTIFY) {
+      trayHinted = true;
+      tray.displayBalloon?.({ title: 'Claudex 还在后台运行', content: '自动化会按时执行。点托盘图标打开，右键菜单里可以退出。', iconType: 'info' });
+    }
+  });
   win.on('closed', () => { win = null; });
+}
+
+let trayHinted = false;
+
+/** 删掉一个对话：worktree 里的改动先存到它的分支上，再删 worktree */
+async function removeConversation(id: string): Promise<void> {
+  const meta = store.conversation(id);
+  if (meta?.worktree && inWorktree(meta)) {
+    await releaseWorktree(id, meta.worktree.path);
+    try {
+      const leftover = await worktree.discard(meta.projectPath, meta.worktree);
+      if (leftover) log(`删除对话时 worktree 文件夹没删干净：${leftover}`);
+    } finally {
+      review.resume(meta.worktree.path);
+    }
+  }
+  manager.delete(id);
+  review.forget(id);
+  team.forget(id);
+  terminals.closeKeys(k => k === id);
+  store.removeConversation(id);
 }
 
 function registerIpc(): void {
@@ -228,22 +289,8 @@ function registerIpc(): void {
     },
     openConversation: id => manager.open(id),
     deleteConversation: async id => {
-      const meta = store.conversation(id);
-      if (meta?.worktree && inWorktree(meta)) {
-        // worktree 里的改动先存到它的分支上，再删掉 worktree
-        await releaseWorktree(id, meta.worktree.path);
-        try {
-          const leftover = await worktree.discard(meta.projectPath, meta.worktree);
-          if (leftover) log(`删除对话时 worktree 文件夹没删干净：${leftover}`);
-        } finally {
-          review.resume(meta.worktree.path);
-        }
-      }
-      manager.delete(id);
-      review.forget(id);
-      team.forget(id);
-      terminals.closeKeys(k => k === id);
-      store.removeConversation(id);
+      await removeConversation(id);
+      automation.forgetConversation(id);
       return store.state;
     },
     send: async (id, text, images, files) => {
@@ -256,7 +303,7 @@ function registerIpc(): void {
     interrupt: async id => { await manager.interrupt(id); },
     setMode: (id, mode) => manager.setMode(id, mode),
     setModel: (id, model, effort) => manager.setModel(id, model, effort),
-    respondPermission: async (id, decision) => { await manager.respond(id, decision); },
+    respondPermission: async (id, decision) => { await manager.respond(id, decision); automation.onRespond(id); },
     pendingMcp: async p => {
       const approvals = store.mcpApprovals(p);
       return projectMcpServers(p).filter(s => !(s.name in approvals));
@@ -317,7 +364,15 @@ function registerIpc(): void {
       return team.newEmployeeConversation(p, profile);
     },
     listSkills: p => manager.listSkills(p),
-    stopTask: id => team.stopTask(id)
+    stopTask: id => team.stopTask(id),
+    // ---- 自动化（C4） ----
+    listAutomations: async () => automation.state(),
+    saveAutomation: a => automation.save(a),
+    deleteAutomation: async id => automation.delete(id),
+    setAutomationEnabled: async (id, enabled) => automation.setEnabled(id, enabled),
+    runAutomation: id => automation.run(id, 'manual'),
+    markRunRead: async id => automation.markRead(id),
+    deleteRun: id => automation.deleteRun(id)
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
@@ -330,11 +385,7 @@ function registerIpc(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  });
+  app.on('second-instance', () => showWindow());
   void app.whenReady().then(() => {
     store = new Store();
     manager = new SessionManager(store, {
@@ -358,12 +409,44 @@ if (!app.requestSingleInstanceLock()) {
       listSkills: p => manager.listSkills(p), interrupt: id => manager.interrupt(id) ?? Promise.resolve(), markStale: ids => manager.markStale(ids),
       confirm: (convId, toolName, input) => manager.confirm(convId, toolName, input)
     });
+    automation = new AutomationManager(app.getPath('userData'), {
+      newConversation: async (a, run) => {
+        const wt = a.place === 'worktree' ? await worktree.createWorktree(a.projectPath) : undefined;
+        const meta = store.newConversation(a.projectPath, wt);
+        const next: ConversationMeta = {
+          ...meta, title: run.title, mode: a.mode, model: a.model || meta.model, effort: a.effort || meta.effort,
+          automation: { id: a.id, runId: run.id, name: a.name }
+        };
+        store.updateConversation(next);
+        emit({ kind: 'meta', convId: next.id, meta: next });
+        return next;
+      },
+      send: sendInternal,
+      pendingCount: id => manager.pendingCount(id),
+      activeTasks: id => team.activeFrom(id),
+      projectExists: p => !!store.project(p),
+      worktreeCheck: p => worktree.worktreeCheck(p),
+      deleteConversation: removeConversation,
+      emit, notify, log
+    }, Number(process.env.CLAUDEX_AUTOMATION_TICK_MS) || 30_000);
     registerIpc();
     createWindow();
+    tray = createTray({
+      open: () => showWindow(),
+      automation: () => showWindow({ kind: 'navigate', to: 'automation' }),
+      quit: () => { quitting = true; app.quit(); },
+      status: () => { const n = automation.state().runs.filter(r => r.status === 'running').length; return n ? `${n} 个自动化在跑` : ''; }
+    });
+    // 自动化测试从这里模拟点托盘菜单
+    (globalThis as Record<string, unknown>).claudexTray = { open: () => showWindow(), automation: () => showWindow({ kind: 'navigate', to: 'automation' }) };
+    automation.start();
     log(`Claudex ${app.getVersion()} 启动；Git Bash：${gitBash().path ?? '没找到'}`);
   });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => {
+    quitting = true;
+    automation?.stop();
+    automation?.saveNow();
     manager?.closeAll();
     terminals?.closeAll();
     review?.close();
