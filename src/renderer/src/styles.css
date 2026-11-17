@@ -698,3 +698,27 @@ body.resizing { cursor: col-resize; user-select: none; }
 .sub-step { display: flex; align-items: center; gap: 6px; color: var(--muted); min-width: 0; }
 .sub-step .target { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); }
 .sub-text { color: var(--muted); white-space: pre-wrap; max-height: 6.5em; overflow: hidden; }
+
+/* ---------------- Skills 配置模式的推荐清单 ---------------- */
+.rec { border: 1px solid var(--env); border-radius: 14px; padding: 12px 16px 14px; background: var(--env-soft); }
+.rec-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.rec-sum { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.rec-sec { font-size: 12px; color: var(--faint); margin: 14px 0 6px; }
+.rec .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tchip { border: 1px solid var(--border-strong); background: var(--bg); color: var(--faint); border-radius: 999px; padding: 2px 10px; font-size: 12px; text-decoration: line-through; }
+.tchip.on { color: var(--text); border-color: var(--env); text-decoration: none; }
+.cand { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); background: var(--bg); border-radius: 10px; padding: 9px 12px; margin-bottom: 6px; cursor: pointer; }
+.cand.off { opacity: .65; }
+.cand input { margin-top: 3px; }
+.cand-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cand-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.cand-title .kind { font-size: 11px; border: 1px solid var(--border-strong); border-radius: 999px; padding: 0 7px; color: var(--muted); }
+.cand-title .repo { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+.cand-desc { font-size: 12.5px; color: var(--muted); }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.badges span { border-radius: 6px; background: var(--hover); padding: 0 6px; }
+.badges .official { color: var(--env); }
+.badges .good { color: var(--ok); }
+.badges .warn { color: var(--warn); }
+.rec-foot { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.rec-note { font-size: 12px; color: var(--muted); }

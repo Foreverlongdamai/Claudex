@@ -5,6 +5,7 @@ import { convCwd } from '@shared/conv';
 import { useStore } from '../store';
 import type { Item, SubStep } from '../timeline';
 import { cleanAgentOutput } from '../timeline';
+import { SkillPlanCard } from './SkillPlan';
 import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine, type PathBase } from '../toolView';
 import { FileChip } from './FileChip';
 import { AssignRow, ProfileApproval, ResultCard, TaskCard } from './Team';
@@ -158,6 +159,7 @@ function toolTitle(r: PermissionRequest): string {
     case 'WebSearch': return 'Claude 想搜索网页';
     case 'mcp__claudex__hire_employee': return '招新员工';
     case 'mcp__claudex__update_employee': return '修改员工档案';
+    case 'mcp__claudex__propose_skill_plan': return '推荐清单';
     default: return r.toolName.startsWith('mcp__') ? `Claude 想调用 ${r.toolName.split('__')[1]} 的工具` : `Claude 想使用 ${r.displayName ?? r.toolName}`;
   }
 }
@@ -310,6 +312,7 @@ function ApprovalView({ convId, item, projectPath }: { convId: string; item: App
   if (item.request.toolName === 'ExitPlanMode') return <PlanApproval convId={convId} item={item} />;
   if (item.request.toolName === 'AskUserQuestion') return <QuestionCard convId={convId} item={item} />;
   if (item.request.toolName === 'mcp__claudex__hire_employee' || item.request.toolName === 'mcp__claudex__update_employee') return <ProfileApproval convId={convId} request={item.request} />;
+  if (item.request.toolName === 'mcp__claudex__propose_skill_plan') return <SkillPlanCard convId={convId} request={item.request} />;
   return <GenericApproval convId={convId} item={item} projectPath={projectPath} />;
 }
 

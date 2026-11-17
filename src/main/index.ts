@@ -25,6 +25,8 @@ import { AutomationManager } from './automation';
 import { appIcon, createTray } from './tray';
 import { HistoryManager } from './history';
 import * as manage from './manage';
+import { applySkillPlan, describeApplied } from './skillPlan';
+import type { SkillPlan } from '../shared/skillPlan';
 
 // 自动化测试用独立的数据目录，不碰用户真实的数据
 if (process.env.CLAUDEX_USER_DATA) app.setPath('userData', process.env.CLAUDEX_USER_DATA);
@@ -116,8 +118,64 @@ function systemAppend(meta: ConversationMeta): string | null {
 
 /** Claudex 提供给 Claude 的工具：主对话有团队工具和登记项目环境；员工有同事、交接、自己的 Skills */
 function claudexMcp(meta: ConversationMeta): Record<string, McpServerConfig> | null {
-  const tools = meta.employee ? team.employeeTools(meta) : [...team.bossTools(meta), ...(condaState?.available ? envTools(meta) : [])];
+  const tools = meta.employee ? team.employeeTools(meta) : [...team.bossTools(meta), ...(condaState?.available ? envTools(meta) : []), ...skillPlanTools(meta)];
   return { claudex: createSdkMcpServer({ name: 'claudex', version: app.getVersion(), tools }) };
+}
+
+/** Skills 配置模式的推荐清单：Claude 交上来，界面显示成可勾选的卡片，用户勾选后由 Claudex 执行 */
+function skillPlanTools(meta: ConversationMeta) {
+  const mcpShape = z.object({
+    type: z.enum(['stdio', 'http', 'sse']),
+    command: z.string().optional(), args: z.array(z.string()).optional(), url: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional().describe('需要的环境变量；密钥留空让用户自己填')
+  });
+  const itemShape = z.object({
+    name: z.string().describe('Skill 的名字（装到 .claude/skills/<名字>/）或 MCP 服务器的名字'),
+    kind: z.enum(['skill', 'mcp']),
+    repo: z.string().describe('GitHub 仓库 owner/name（也可以是 git 地址）'),
+    path: z.string().optional().describe('Skill 在仓库里的文件夹（SKILL.md 所在的）；在根目录就不填'),
+    description: z.string().describe('一句话：做什么、为什么推荐给这个项目'),
+    stars: z.number().optional(), license: z.string().optional().describe('许可证，比如 MIT；没有就不填'),
+    updated: z.string().optional().describe('多久前更新，比如“3 天前”'),
+    scripts: z.number().optional().describe('Skill 里有几个可执行脚本（.sh .py .js .ps1 等）'),
+    official: z.boolean().optional().describe('官方出品'),
+    mcp: mcpShape.optional().describe('kind 是 mcp 时：怎么启动')
+  });
+  return [
+    tool(
+      'propose_skill_plan',
+      'Skills 配置模式的最后一步：把推荐清单交给用户勾选（界面会显示成可勾选的卡片）。用户勾选后由 Claudex 执行：新 Skill 装到项目的 .claude/skills/，MCP 加到项目的 .mcp.json，要关闭的写进项目 .claude/settings.json 的 skillOverrides，再写进 CLAUDE.md。你自己不要安装、不要改这些文件。',
+      {
+        summary: z.string().optional().describe('一两句话：这个项目需要哪几类能力'),
+        keep: z.array(z.string()).describe('已安装、本项目要用的 Skill 名字'),
+        install: z.array(itemShape).describe('新发现、建议安装的 Skill 或 MCP 服务器'),
+        close: z.array(z.string()).describe('已安装、但和本项目无关、建议在本项目关闭的 Skill 名字'),
+        filtered: z.number().optional().describe('按筛选标准过滤掉了几个候选'),
+        note: z.string().optional()
+      },
+      async input => {
+        const d = await manager.confirm(meta.id, 'mcp__claudex__propose_skill_plan', input as Record<string, unknown>);
+        if (d.behavior !== 'allow') return { content: [{ type: 'text', text: `用户没有应用推荐清单：${d.message || '没有说原因'}。什么都没改，不要自己安装。` }], isError: true };
+        const plan = { ...input, ...(d.updatedInput ?? {}) } as SkillPlan;
+        const r = await applySkillPlan(meta.projectPath, plan, {
+          addMcp: async (p, item) => {
+            if (!item.mcp) throw new Error('没写怎么启动');
+            await manage.saveServer({ name: item.name, scope: 'project', type: item.mcp.type, command: item.mcp.command, args: item.mcp.args, env: item.mcp.env, url: item.mcp.url }, p, mcpEnv());
+            store.setMcpApproval(p, item.name, true);
+          },
+          log
+        });
+        manager.forgetSkills();
+        manager.markProjectStale(meta.projectPath);
+        emit({
+          kind: 'notice', convId: meta.id, tone: r.failed.length ? 'error' : 'ok',
+          text: `推荐清单已应用：装了 ${r.installed.length} 个 Skill、加了 ${r.mcp.length} 个 MCP 服务器、在本项目关闭了 ${r.closed.length} 个 Skills${r.failed.length ? `，${r.failed.length} 项没做成` : ''}`,
+          detail: [...r.installed.map(i => `.claude/skills/${i.name}/（来自 ${i.repo}${i.scripts ? `，含 ${i.scripts} 个脚本，没有运行` : ''}）`), ...r.failed.map(f => `没做成：${f.name}（${f.why}）`), '已写进 CLAUDE.md'].join('\n')
+        });
+        return { content: [{ type: 'text', text: describeApplied(r) }] };
+      }
+    )
+  ];
 }
 
 function envTools(meta: ConversationMeta) {

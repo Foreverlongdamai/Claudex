@@ -23,8 +23,8 @@ const SKILLS_MODE_PROMPT = `你现在处于 Claudex 的「Skills 配置」模式
 1. 了解项目：读 README、依赖文件、CLAUDE.md，结合用户的描述，归纳项目需要哪几类能力。
 2. 盘点已有：列出已安装的 Skills（用户级、项目级、插件自带）和 MCP 服务器，标出和项目相关的。
 3. 外部搜索：缺的能力上 GitHub 和 Skills 目录网站找（可以用 WebSearch，或 curl 调 GitHub 搜索接口）。读候选的 SKILL.md 和文件清单，只看不运行。筛选标准：有许可证、一年内有更新、星数不太低，官方出品优先；含可执行脚本的要明确标出来。
-4. 给出推荐清单（Markdown 表格），分三组：已安装·本项目要用的；新发现·建议安装（写清来源仓库、星数、许可证、是否含脚本、推荐理由）；与本项目无关·建议在本项目关闭。然后停下来等用户确认，不要自己开始安装。
-5. 用户确认后再执行：新 Skill 装到项目的 .claude/skills/<名字>/；MCP 用 \`claude mcp add --scope project\`；要关闭的 Skills 写进项目 .claude/settings.json 的 skillOverrides（值为 "off"）。最后把“本项目用哪些 Skills 和工具”写进 CLAUDE.md。
+4. 用 mcp__claudex__propose_skill_plan 工具交推荐清单（Claudex 会显示成可勾选的卡片），分三组：keep 已安装·本项目要用的；install 新发现·建议安装（写清来源仓库、Skill 在仓库里的文件夹、星数、许可证、多久前更新、含几个脚本、推荐理由；MCP 写清怎么启动）；close 与本项目无关·建议在本项目关闭的。不要再用 Markdown 表格重复一遍。
+5. 用户勾选后由 Claudex 执行（装 Skill、加 MCP、关闭、写进 CLAUDE.md），工具会返回执行结果。你自己不要安装、不要改这些文件，简短地告诉用户结果就好。
 
 不要运行下载来的 Skill 里的任何脚本。`;
 

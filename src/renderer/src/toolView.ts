@@ -146,6 +146,8 @@ export function describeTool(item: ToolItem, projectPath: PathBase): ToolView {
       return { icon: 'users', verb: '请同事帮忙', running: '正在请同事帮忙', target: `${s(input.colleague)}：${s(input.title)}`, body: 'output' };
     case 'mcp__claudex__update_my_skills':
       return { icon: 'spark', verb: '调整了能用的 Skills', running: '正在调整能用的 Skills', target: Array.isArray(input.skills) && input.skills.length ? (input.skills as string[]).join('、') : '全部', body: 'output' };
+    case 'mcp__claudex__propose_skill_plan':
+      return { icon: 'listcheck', verb: '交了推荐清单', running: '正在等你勾选推荐清单', target: `装 ${Array.isArray(input.install) ? input.install.length : 0} 项、关闭 ${Array.isArray(input.close) ? input.close.length : 0} 个`, body: 'output' };
     case 'mcp__claudex__set_project_env':
       return { icon: 'pkg', verb: '登记了项目环境', running: '正在登记项目环境', target: s(input.env), body: 'output' };
     default: {

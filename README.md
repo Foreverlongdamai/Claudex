@@ -27,7 +27,7 @@ npm run dev      # 开发模式（改代码后界面自动刷新）
 - 打开项目文件夹，在项目里开多个对话；对话列表重启后还在，打开能看到历史并接着聊
 - Claude 的回复逐字显示，读文件、改文件、跑命令显示成一行一行的活动记录；改代码显示红绿对比
 - 审批框：允许一次、总是允许、拒绝（可以附上原因）；计划模式的计划卡片；Claude 向你提问时的选项卡片
-- 5 个模式：默认（询问）、自动接受编辑、计划模式、完全访问（切换前确认）、Skills 配置（自定义）；Shift+Tab 依次切换
+- 5 个模式：默认（询问）、自动接受编辑、计划模式、完全访问（切换前确认）、Skills 配置（自定义）；Shift+Tab 依次切换。Skills 配置模式里 Claude 了解项目、盘点已有的、上 GitHub 找缺的，最后给一份可勾选的推荐清单，你勾选后 Claudex 来装（含脚本的默认不勾、不运行）、在本项目关闭无关的、写进 CLAUDE.md
 - 模型选择器：模型、思考强度；走中转时快速模式置灰并说明原因
 - 输入框：`/` 打开命令和 Skills，`@` 引用文件；停止按钮（Esc）；上下文用量
 - 附件：Word、PDF、Excel、PPT、录音、视频、图片拖进对话区（或点 +、粘贴）就能交给 Claude；图片直接发，其他文件只带路径、不复制。Claude 用全局配置好的工具读（见 [docs/file-reading.md](docs/file-reading.md)）
@@ -46,7 +46,7 @@ npm run dev      # 开发模式（改代码后界面自动刷新）
 
 ```bash
 npm run typecheck   # 类型检查
-npm run test:unit   # 单元测试：保底黑名单、Skills 配置模式规则、时间线、附件、git diff 解析、git 操作、worktree、项目环境、员工档案、读附件命令、自动化的运行时刻、对话历史、Skills 和设置的管理
+npm run test:unit   # 单元测试：保底黑名单、Skills 配置模式规则、时间线、附件、git diff 解析、git 操作、worktree、项目环境、员工档案、读附件命令、自动化的运行时刻、对话历史、Skills 和设置的管理、Skills 推荐清单
 npm run test:e2e    # 端到端测试：真正启动 App 并调用 Claude（会花少量 token），截图在 tests/e2e/.out/
 npm run dist        # 打 Windows 安装包：dist/Claudex-Setup-<版本>.exe（配置在 electron-builder.yml，图标由 scripts/make-icon.mjs 画）
 npm run test:installer   # 安装包测试：静默安装、启动、发一条消息、开终端、托盘，再静默卸载

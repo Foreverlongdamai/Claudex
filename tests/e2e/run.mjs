@@ -1631,6 +1631,63 @@ await step('74 API 令牌无效：显示出错原因和怎么办，不是一直�
   await waitTurn(60000);
 });
 
+await step('75 Skills 配置模式：推荐清单卡片（含脚本的默认不勾），应用后由 Claudex 装 Skill、加 MCP、在本项目关闭、写进 CLAUDE.md', async () => {
+  // 一个本地的“仓库”当作 GitHub 上的 Skills 仓库：一个普通的 Skill，一个带脚本的
+  const repo = path.join(work, 'fake-skills-repo');
+  fs.mkdirSync(path.join(repo, 'skills', 'greeter'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'skills', 'scripted'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'skills', 'greeter', 'SKILL.md'), '---\nname: greeter\ndescription: 打招呼用的测试 Skill\n---\n\n回复“你好”。\n');
+  fs.writeFileSync(path.join(repo, 'skills', 'scripted', 'SKILL.md'), '---\nname: scripted\ndescription: 带脚本的测试 Skill\n---\n\n运行 run.sh。\n');
+  fs.writeFileSync(path.join(repo, 'skills', 'scripted', 'run.sh'), 'echo hi\n');
+  const rg = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
+  rg('init', '-q', '-b', 'main'); rg('config', 'user.name', 'e2e'); rg('config', 'user.email', 'e2e@example.invalid'); rg('add', '.'); rg('commit', '-q', '-m', 'skills');
+  const fakeMcp = path.join(root, 'tests', 'e2e', 'fake-mcp.mjs');
+  const plan = {
+    summary: '端到端测试：一个打招呼的 Skill 和一个测试用的 MCP 服务器',
+    keep: ['hello-skill'],
+    install: [
+      { name: 'greeter', kind: 'skill', repo, path: 'skills/greeter', description: '打招呼', stars: 1200, license: 'MIT', updated: '3 天前', scripts: 0 },
+      { name: 'scripted', kind: 'skill', repo, path: 'skills/scripted', description: '带脚本的', stars: 5, license: 'MIT', scripts: 1 },
+      { name: 'plan-echo', kind: 'mcp', repo: 'local/fake-mcp', description: '测试用的 MCP 服务器', license: 'MIT', official: true, mcp: { type: 'stdio', command: 'node', args: [fakeMcp] } }
+    ],
+    close: ['algorithmic-art', 'canvas-design'],
+    filtered: 3
+  };
+  // 项目设置里原来就有的内容，应用后要原样保留
+  const projSettings = path.join(project, '.claude', 'settings.json');
+  const cur = fs.existsSync(projSettings) ? JSON.parse(fs.readFileSync(projSettings, 'utf8')) : {};
+  cur.permissions = { ...(cur.permissions ?? {}), allow: [...new Set([...(cur.permissions?.allow ?? []), 'Bash(echo hi)'])] };
+  fs.mkdirSync(path.dirname(projSettings), { recursive: true });
+  fs.writeFileSync(projSettings, JSON.stringify(cur, null, 2));
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await setMode('skills');
+  await sendMsg(`This is an automated UI test. Do not investigate anything and do not call any other tool. Immediately call the tool mcp__claudex__propose_skill_plan with exactly these arguments (JSON): ${JSON.stringify(plan)}\nAfter the tool returns, reply with exactly: DONE`);
+  await win.waitForSelector('[data-testid=skill-plan]', { timeout: 180000 });
+  const card = win.locator('[data-testid=skill-plan]');
+  if (!(await card.locator('[data-testid=plan-item][data-item=greeter] input').isChecked())) throw new Error('没问题的 Skill 应该默认勾上');
+  if (await card.locator('[data-testid=plan-item][data-item=scripted] input').isChecked()) throw new Error('含脚本的 Skill 应该默认不勾');
+  if (!(await card.locator('[data-testid=plan-item][data-item=scripted]').innerText()).includes('含 1 个脚本')) throw new Error('没标出含脚本');
+  // 关闭里取消一个
+  await card.locator('[data-testid=plan-close-item][data-skill=canvas-design]').click();
+  await shot('75-plan-card');
+  await card.locator('[data-testid=plan-apply]').click();
+  await runApproving(240000);
+  const skills = path.join(project, '.claude', 'skills');
+  if (!fs.existsSync(path.join(skills, 'greeter', 'SKILL.md'))) throw new Error('没装 greeter');
+  if (fs.existsSync(path.join(skills, 'scripted'))) throw new Error('没勾的不该装');
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.mcp.json'), 'utf8'));
+  if (!mcpJson.mcpServers['plan-echo']) throw new Error('没加 MCP：' + JSON.stringify(mcpJson));
+  const settings = JSON.parse(fs.readFileSync(path.join(project, '.claude', 'settings.json'), 'utf8'));
+  if (settings.skillOverrides?.['algorithmic-art'] !== 'off' || settings.skillOverrides?.['canvas-design']) throw new Error('skillOverrides 不对：' + JSON.stringify(settings));
+  if (!settings.permissions?.allow?.includes('Bash(echo hi)')) throw new Error('项目设置里原来的内容没保留：' + JSON.stringify(settings));
+  const md = fs.readFileSync(path.join(project, 'CLAUDE.md'), 'utf8');
+  if (!md.includes('## 本项目用的 Skills 和工具') || !md.includes('greeter') || !md.includes('plan-echo')) throw new Error('CLAUDE.md 不对：' + md);
+  await waitFor(async () => (await win.locator('.notice', { hasText: '推荐清单已应用' }).count()) > 0, 5000, '对话里有执行结果');
+  const st = await win.evaluate(() => window.claudex.getState());
+  if (!Object.values(st.mcpApprovals).some(a => a['plan-echo'] === true)) throw new Error('加的 MCP 应该算批准过');
+  await setMode('default');
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
