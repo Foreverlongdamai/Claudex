@@ -431,6 +431,86 @@ await step('25 终端里 Ctrl+V 粘贴、Ctrl+C 中断正在运行的命令', as
   await waitTerm(/^after-interrupt/m, 'Ctrl+C 中断了 sleep，后面的命令能执行', 10000);
 });
 
+// ---------- 附件：拖进来的文件（Word、PDF、老格式 PPT、录音） ----------
+// 文件放在项目目录外、路径里有空格和中文：检验原地引用、读项目外的附件不弹审批、全局规则和 Skills 生效
+const attachDir = path.join(work, '附件 资料');
+fs.mkdirSync(attachDir, { recursive: true });
+for (const f of fs.readdirSync(path.join(root, 'tests', 'e2e', 'fixtures'))) {
+  if (!f.endsWith('.ps1')) fs.copyFileSync(path.join(root, 'tests', 'e2e', 'fixtures', f), path.join(attachDir, f));
+}
+const attach = name => path.join(attachDir, name);
+const chips = () => win.locator('.composer [data-testid=file-chip]');
+
+await step('26 附件：Word、PDF、老格式 PPT、录音交给 Claude，内容读对、不弹审批', async () => {
+  if (await termOpen()) await win.locator('[data-testid=terminal-button]').click();
+  await win.locator('.thread').click({ position: { x: 20, y: 20 } });
+  await win.keyboard.press('Control+n');
+  await win.locator('[data-testid=attach-input]').setInputFiles([attach('周报.docx'), attach('周报.pdf'), attach('汇报.ppt'), attach('录音.wav')]);
+  await waitFor(async () => (await chips().count()) === 4, 5000, '4 个附件小卡片');
+  const chipText = (await chips().allInnerTexts()).join(' | ');
+  if (!/周报\.docx/.test(chipText) || !/录音\.wav/.test(chipText)) throw new Error('小卡片内容不对：' + chipText);
+  await shot('26-attachments');
+  await sendMsg('逐个读这些附件。每个文件回答一行：文件名 + 里面形如“青松-DOCX-7731”的标记词（没有就写“无”）。最后一行写出录音里说的暗号。');
+  await passMcpGate();
+  await waitTurn(300000);
+  // 整轮都不能弹过审批：还挂着的（approval）和已经处理掉的（ap-done）都算
+  const asked = [...await win.locator('[data-testid=approval] .ap-title').allInnerTexts(), ...await win.locator('.ap-done').allInnerTexts()];
+  if (asked.length) throw new Error('弹过审批：' + asked.join(' | '));
+  if (!(await win.locator('[data-testid=mode-button]').innerText()).includes('默认')) throw new Error('模式变了：' + await win.locator('[data-testid=mode-button]').innerText());
+  const reply = await lastAssistant();
+  for (const mark of ['青松-DOCX-7731', '白鹭-PPTX-4410', '长江']) if (!reply.includes(mark)) throw new Error(`回复里没有 ${mark}：` + reply);
+  const bubble = win.locator('.msg.user').last();
+  if ((await bubble.locator('[data-testid=file-chip]').count()) !== 4) throw new Error('消息气泡里应该是 4 个附件小卡片');
+  if ((await bubble.innerText()).includes('claudex-attachments')) throw new Error('气泡里露出了附件块原文');
+  if (await chips().count()) throw new Error('发送后输入框里的附件没清空');
+  await shot('26-attachments-reply');
+});
+
+await step('27 拖放：拖到对话区出现提示、松开成为附件；拖到终端粘贴路径；网页上的“文件”提示拿不到路径', async () => {
+  // 用一个隐藏的文件框拿到“硬盘上的文件”，再拼成拖放数据（和从资源管理器拖进来一样，带真实路径）
+  await win.evaluate(() => {
+    const i = Object.assign(document.createElement('input'), { type: 'file', multiple: true, id: 'e2e-drop-src', hidden: true });
+    document.body.appendChild(i);
+  });
+  await win.locator('#e2e-drop-src').setInputFiles([attach('周报.docx'), attach('录音.wav')]);
+  const dragData = () => win.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    for (const f of document.querySelector('#e2e-drop-src').files) dt.items.add(f);
+    return dt;
+  });
+  let dt = await dragData();
+  await win.dispatchEvent('.thread', 'dragenter', { dataTransfer: dt });
+  await win.dispatchEvent('.thread', 'dragover', { dataTransfer: dt });
+  await win.waitForSelector('[data-testid=drop-overlay]', { timeout: 3000 });
+  if (!(await win.locator('[data-testid=drop-overlay]').innerText()).includes('附件')) throw new Error('拖放提示不对');
+  await shot('27-drop-overlay');
+  await win.dispatchEvent('.thread', 'drop', { dataTransfer: dt });
+  await waitFor(async () => (await chips().count()) === 2, 5000, '拖进来的 2 个附件');
+  if (await win.locator('[data-testid=drop-overlay]').count()) throw new Error('松开后提示没消失');
+  // 再拖一次同样的文件：不重复添加
+  dt = await dragData();
+  await win.dispatchEvent('.thread', 'drop', { dataTransfer: dt });
+  await sleep(300);
+  if ((await chips().count()) !== 2) throw new Error('重复拖入的文件被加了两次');
+  // 点 × 移除
+  await chips().first().locator('button').click();
+  await waitFor(async () => (await chips().count()) === 1, 3000, '移除一个附件');
+  // 不在硬盘上的“文件”（比如网页里拖来的）：拿不到路径，给出提示
+  const fake = await win.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(['x'], '网页.txt', { type: 'text/plain' })); return d; });
+  await win.dispatchEvent('.thread', 'drop', { dataTransfer: fake });
+  await waitFor(async () => (await win.locator('.toast').allInnerTexts()).some(t => t.includes('拿不到')), 3000, '拿不到路径的提示');
+  // 拖到终端上：把路径（带引号）粘贴进去，不加成附件
+  await win.locator('[data-testid=terminal-button]').click();
+  await waitTerm(PROMPT, '终端提示符');
+  dt = await dragData();
+  await win.dispatchEvent('.term-host', 'drop', { dataTransfer: dt });
+  await waitTerm(/附件 资料/, '终端里出现粘贴的路径');
+  if ((await chips().count()) !== 1) throw new Error('拖到终端的文件不该变成附件');
+  await shot('27-drop-terminal');
+  await win.locator('.term-host').click();
+  await win.keyboard.press('Control+c');
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));

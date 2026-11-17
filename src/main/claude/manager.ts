@@ -2,7 +2,7 @@
 // 被回收的对话下次发消息时会用 resume 续接，上下文不会丢（M0 验证过）。
 import { getSessionMessages, query, type Query } from '@anthropic-ai/claude-agent-sdk';
 import os from 'node:os';
-import type { CommandInfo, ConvEvent, ImageAttachment, ModelOption, OpenedConversation, SdkMessageLike } from '../../shared/types';
+import type { CommandInfo, ConvEvent, FileAttachment, ImageAttachment, ModelOption, OpenedConversation, SdkMessageLike } from '../../shared/types';
 import type { Store } from '../store';
 import { ConvSession, type SessionDeps } from './session';
 
@@ -61,10 +61,10 @@ export class SessionManager {
     return { meta: { ...s.meta }, status: s.status, history, pending: s.pendingRequests(), usage: s.usage };
   }
 
-  async send(convId: string, text: string, images?: ImageAttachment[]): Promise<void> {
+  async send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void> {
     const s = this.session(convId);
     if (!s.live) this.makeRoom(s);
-    await s.send(text, images);
+    await s.send(text, images, files);
   }
 
   interrupt(convId: string) { return this.sessions.get(convId)?.interrupt(); }

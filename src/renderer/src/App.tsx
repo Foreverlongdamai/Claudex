@@ -1,5 +1,5 @@
 // 整体布局和全局快捷键。
-import { useEffect } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Composer } from './components/Composer';
 import { Dialogs } from './components/Dialogs';
 import { Sidebar } from './components/Sidebar';
@@ -7,6 +7,7 @@ import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
 import { TopBar } from './components/TopBar';
 import { Welcome } from './components/Welcome';
+import { DROP_EVENT, TERM_DROP_EVENT, droppedFiles } from './drop';
 import { MODE_ORDER } from './modes';
 import { useStore } from './store';
 
@@ -18,6 +19,38 @@ export function App() {
   useEffect(() => {
     void useStore.getState().init();
   }, []);
+
+  // 把文件拖进窗口时，Electron 默认会直接打开那个文件（整个界面被替换掉），先全部拦住；对话区再单独处理
+  useEffect(() => {
+    const block = (e: globalThis.DragEvent) => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); };
+    window.addEventListener('dragover', block);
+    window.addEventListener('drop', block);
+    return () => { window.removeEventListener('dragover', block); window.removeEventListener('drop', block); };
+  }, []);
+
+  // 拖文件到对话区：松开后交给输入框作为附件；拖到终端上则把路径粘贴进终端
+  const [dropTarget, setDropTarget] = useState<'chat' | 'terminal' | null>(null);
+  const dragDepth = useRef(0);
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files');
+  const overTerminal = (e: DragEvent) => !!(e.target as HTMLElement | null)?.closest?.('.term-panel');
+  const dropHandlers = {
+    onDragEnter: (e: DragEvent) => { if (hasFiles(e)) { dragDepth.current++; setDropTarget(overTerminal(e) ? 'terminal' : 'chat'); } },
+    onDragLeave: (e: DragEvent) => { if (hasFiles(e) && --dragDepth.current <= 0) { dragDepth.current = 0; setDropTarget(null); } },
+    onDragOver: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      const t = overTerminal(e) ? 'terminal' : 'chat';
+      if (t !== dropTarget) setDropTarget(t);
+    },
+    onDrop: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDropTarget(null);
+      window.dispatchEvent(new CustomEvent(overTerminal(e) ? TERM_DROP_EVENT : DROP_EVENT, { detail: droppedFiles(e.dataTransfer) }));
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,8 +92,17 @@ export function App() {
       <Sidebar />
       <div className="mainwrap">
         <TopBar />
-        <main className="chat">
+        <main className="chat" {...(hasProjects ? dropHandlers : {})}>
           {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}
+          {dropTarget && (
+            <div className={`drop-overlay${dropTarget === 'terminal' ? ' terminal' : ''}`} data-testid="drop-overlay">
+              <div className="drop-card">
+                {dropTarget === 'terminal'
+                  ? <><b>松开把文件路径粘贴到终端</b><span>拖到上面的对话区则作为附件发给 Claude</span></>
+                  : <><b>松开添加为附件</b><span>Word、PDF、Excel、PPT、录音、视频都行；图片直接发给 Claude 看，其他文件只带路径，不复制</span></>}
+              </div>
+            </div>
+          )}
         </main>
       </div>
       <Dialogs />

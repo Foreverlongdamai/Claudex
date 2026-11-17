@@ -1,7 +1,7 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, ImageAttachment, McpServerInfo,
+  AppState, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, ImageAttachment, McpServerInfo,
   ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { MODES } from './modes';
@@ -35,6 +35,7 @@ export interface Draft {
 interface PendingSend {
   text: string;
   images: ImageAttachment[];
+  files: FileAttachment[];
 }
 
 interface UiState {
@@ -66,7 +67,7 @@ interface UiState {
   confirmTrust(): Promise<void>;
   removeProject(path: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
-  send(text: string, images: ImageAttachment[]): Promise<void>;
+  send(text: string, images: ImageAttachment[], files?: FileAttachment[]): Promise<void>;
   finishMcpGate(decisions: Record<string, boolean>): Promise<void>;
   interrupt(): Promise<void>;
   requestMode(mode: ModeId): void;
@@ -234,16 +235,16 @@ export const useStore = create<UiState>((set, get) => {
       if (get().activeId === id) get().startDraft(project);
     },
 
-    async send(text, images) {
+    async send(text, images, files = []) {
       const s = get();
       const active = s.activeId ? s.convs[s.activeId] : null;
       const projectPath = active?.meta.projectPath ?? s.activeProject;
-      if (!projectPath || (!text.trim() && !images.length)) return;
+      if (!projectPath || (!text.trim() && !images.length && !files.length)) return;
       // 进程还没起来时，先检查项目里有没有没批准过的 MCP 服务器（M0 发现 SDK 不会问）
       if (!active || active.status === 'new' || active.status === 'dormant' || active.status === 'error') {
         const servers = await api.pendingMcp(projectPath);
         if (servers.length) {
-          set({ dialog: { kind: 'mcp', projectPath, servers }, pendingSend: { text, images } });
+          set({ dialog: { kind: 'mcp', projectPath, servers }, pendingSend: { text, images, files } });
           return;
         }
       }
@@ -261,10 +262,10 @@ export const useStore = create<UiState>((set, get) => {
         set(st => ({ convs: { ...st.convs, [meta.id]: { meta, status: 'new', timeline: emptyTimeline(), loaded: true } }, activeId: meta.id, draft: null }));
       }
       const convId = id;
-      patchConv(convId, c => ({ status: 'running', timeline: addUser(c.timeline, text, images.length, c.meta.mode === 'skills') }));
+      patchConv(convId, c => ({ status: 'running', timeline: addUser(c.timeline, text, images.length, c.meta.mode === 'skills', files.map(f => f.path)) }));
       set(st => ({ sentToken: st.sentToken + 1, pendingSend: null }));
       try {
-        await api.send(convId, text, images);
+        await api.send(convId, text, images, files);
       } catch (e) {
         patchConv(convId, c => ({ status: 'error', timeline: addNotice(c.timeline, 'error', '消息没有发出去', e instanceof Error ? e.message : String(e)) }));
       }
@@ -276,7 +277,7 @@ export const useStore = create<UiState>((set, get) => {
       for (const [name, approved] of Object.entries(decisions)) await api.setMcpApproval(d.projectPath, name, approved);
       const pending = get().pendingSend;
       set({ dialog: null });
-      if (pending) await get().send(pending.text, pending.images);
+      if (pending) await get().send(pending.text, pending.images, pending.files);
     },
 
     async interrupt() {

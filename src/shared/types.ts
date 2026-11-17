@@ -161,6 +161,14 @@ export interface CommandInfo {
   description: string;
 }
 
+/** 非图片附件：只带路径，原地引用（见 shared/attachments.ts） */
+export interface FileAttachment {
+  path: string;
+  name: string;
+  size: number;
+  isDir?: boolean;
+}
+
 export interface ImageAttachment {
   mediaType: string;
   /** base64，不带 data: 前缀 */
@@ -204,7 +212,9 @@ export interface ClaudexApi {
   newConversation(projectPath: string): Promise<ConversationMeta>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
-  send(convId: string, text: string, images?: ImageAttachment[]): Promise<void>;
+  send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;
+  /** 拖进来或选中的文件在硬盘上的完整路径（不是硬盘上的文件时返回空字符串）。只在 preload 里实现，不走 IPC */
+  pathForFile(file: File): string;
   interrupt(convId: string): Promise<void>;
   setMode(convId: string, mode: ModeId): Promise<void>;
   setModel(convId: string, model: string, effort: Effort): Promise<void>;

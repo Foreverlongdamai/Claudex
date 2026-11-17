@@ -6,6 +6,7 @@
 //   - 没批准的项目 MCP 服务器用 disabledMcpjsonServers 拦住
 //   - 保底黑名单用 PreToolUse hook，完全访问下也生效
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import {
   query,
   type CanUseTool,
@@ -17,9 +18,10 @@ import {
   type SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  BlacklistRule, ConvEvent, ConvStatus, ConversationMeta, Effort, ImageAttachment, ModeId,
+  BlacklistRule, ConvEvent, ConvStatus, ConversationMeta, Effort, FileAttachment, ImageAttachment, ModeId,
   PermissionDecision, PermissionRequest, SdkMessageLike, UsageInfo
 } from '../../shared/types';
+import { baseName, withAttachments } from '../../shared/attachments';
 import { matchBlacklist } from '../guard/blacklist';
 import { SDK_MODE, skillsModeDecision, wrapForMode } from '../guard/modes';
 
@@ -80,6 +82,8 @@ function describeSuggestions(suggestions?: PermissionUpdate[]): string | undefin
   }
   return parts.join('，') || undefined;
 }
+
+const normFile = (p: string) => path.resolve(p).toLowerCase();
 
 function makeTitle(text: string): string {
   const line = text.split(/\r?\n/).map(s => s.trim()).find(Boolean) ?? '新对话';
@@ -193,16 +197,17 @@ export class ConvSession {
     }
   }
 
-  async send(text: string, images: ImageAttachment[] = []): Promise<void> {
+  async send(text: string, images: ImageAttachment[] = [], files: FileAttachment[] = []): Promise<void> {
     if (!this.q) this.start();
-    const body = wrapForMode(this.meta.mode, text);
+    for (const f of files) this.attached.add(normFile(f.path));
+    const body = wrapForMode(this.meta.mode, withAttachments(text, files));
     const content = images.length
       ? [
           ...images.map(img => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType as 'image/png', data: img.data } })),
           { type: 'text' as const, text: body }
         ]
       : body;
-    if (this.meta.title === '新对话') this.meta.title = makeTitle(text);
+    if (this.meta.title === '新对话') this.meta.title = makeTitle(text.trim() || files.map(f => baseName(f.path)).join('、'));
     this.meta.updatedAt = Date.now();
     this.persist();
     this.input!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
@@ -237,7 +242,19 @@ export class ConvSession {
 
   // ---------------- 审批 ----------------
 
+  /** 用户拖进来的附件（规范化后的完整路径）。Claude 读这些文件（或附加的文件夹里的文件）时不用再问 */
+  private attached = new Set<string>();
+
+  private isAttached(file: unknown): boolean {
+    if (typeof file !== 'string' || !file) return false;
+    const p = normFile(file);
+    for (const a of this.attached) if (p === a || p.startsWith(a + path.sep)) return true;
+    return false;
+  }
+
   private canUseTool: CanUseTool = async (toolName, input, opts) => {
+    // 读用户自己拖进来的附件：用户的意思就是让 Claude 读，直接放行（项目目录外的文件 Claude Code 默认会问）
+    if (toolName === 'Read' && this.isAttached((input as { file_path?: unknown }).file_path)) return { behavior: 'allow', updatedInput: input };
     // Skills 配置模式：按规则自动放行或拒绝；提问和计划仍然要用户回答
     if (this.meta.mode === 'skills' && toolName !== 'AskUserQuestion' && toolName !== 'ExitPlanMode') {
       const d = skillsModeDecision(toolName, input, this.meta.projectPath);

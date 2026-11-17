@@ -1,8 +1,10 @@
 // 输入框：/ 命令菜单、@ 引用文件、粘贴图片、模型选择器、上下文用量、发送/停止；下方是模式菜单、项目、分支。
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { EFFORTS, type CommandInfo, type Effort, type ImageAttachment, type ModeId } from '@shared/types';
+import { EFFORTS, type CommandInfo, type Effort, type FileAttachment, type ImageAttachment, type ModeId } from '@shared/types';
+import { DROP_EVENT, type DroppedFiles } from '../drop';
 import { MODES, MODE_ORDER } from '../modes';
 import { useCurrentSettings, useStore } from '../store';
+import { FileChip } from './FileChip';
 import { Icon } from './Icon';
 
 const EFFORT_LABEL: Record<Effort, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' };
@@ -10,6 +12,9 @@ const EFFORT_LABEL: Record<Effort, string> = { low: '低', medium: '中', high: 
 const ALIAS_NAME: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_FILES = 20;
+/** Claude 能直接看的图片格式；其他图片（bmp、svg、太大的）按普通文件附加 */
+const VISIBLE_IMAGE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -156,6 +161,7 @@ export function Composer() {
   const toast = useStore(s => s.toast);
   const [text, setText] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [files, setFiles] = useState<FileAttachment[]>([]);
   const [popup, setPopup] = useState<Popup | null>(null);
   const commands = useRef<{ project: string; list: CommandInfo[] } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -163,7 +169,7 @@ export function Composer() {
   const running = status === 'running' || status === 'starting';
 
   // 真正发出去之后才清空（遇到 MCP 批准弹窗时，内容要留着）
-  useEffect(() => { setText(''); setImages([]); setPopup(null); }, [sentToken]);
+  useEffect(() => { setText(''); setImages([]); setFiles([]); setPopup(null); }, [sentToken]);
   useEffect(() => { input.current?.focus(); }, [activeId, projectPath]);
   useEffect(() => {
     const el = input.current;
@@ -172,11 +178,48 @@ export function Composer() {
     el.style.height = Math.min(el.scrollHeight, 240) + 'px';
   }, [text]);
 
-  const addImages = async (files: File[]) => {
-    const read = (await Promise.all(files.map(readImage))).filter((x): x is ImageAttachment => !!x);
-    if (read.length < files.length) toast('只支持图片，单张不超过 5 MB');
-    setImages(cur => [...cur, ...read].slice(0, MAX_IMAGES));
+  /**
+   * 拖进来、粘贴、用 + 选的文件：图片（5 MB 以内）直接作为图片发给 Claude；其他文件不复制、不上传内容，
+   * 只把完整路径带在消息里（原地引用），Claude 按全局规则用对应的工具去读（Word、PDF、录音……）
+   */
+  const addFiles = async (list: File[], isDir: (i: number) => boolean = () => false) => {
+    if (!projectPath) { toast('先在左边添加一个项目'); return; }
+    const imgs: File[] = [];
+    const refs: FileAttachment[] = [];
+    let noPath = 0;
+    list.forEach((f, i) => {
+      const p = window.claudex.pathForFile(f);
+      if (!isDir(i) && VISIBLE_IMAGE.includes(f.type) && f.size <= MAX_IMAGE_BYTES) imgs.push(f);
+      else if (p) refs.push({ path: p, name: f.name, size: f.size, isDir: isDir(i) || undefined });
+      else noPath++;
+    });
+    if (noPath) toast(`有 ${noPath} 个文件拿不到在硬盘上的位置（比如从网页拖来的），没有添加`);
+    if (refs.length) {
+      setFiles(cur => {
+        const seen = new Set(cur.map(f => f.path.toLowerCase()));
+        const next = [...cur, ...refs.filter(f => !seen.has(f.path.toLowerCase()) && seen.add(f.path.toLowerCase()))];
+        if (next.length > MAX_FILES) toast(`一次最多附加 ${MAX_FILES} 个文件`);
+        return next.slice(0, MAX_FILES);
+      });
+    }
+    if (imgs.length) {
+      const read = (await Promise.all(imgs.map(readImage))).filter((x): x is ImageAttachment => !!x);
+      setImages(cur => {
+        if (cur.length + read.length > MAX_IMAGES) toast(`一次最多附加 ${MAX_IMAGES} 张图片`);
+        return [...cur, ...read].slice(0, MAX_IMAGES);
+      });
+    }
   };
+
+  // 拖到对话区任何地方的文件，由 App 转发过来
+  useEffect(() => {
+    const onDrop = (e: Event) => {
+      const d = (e as CustomEvent<DroppedFiles>).detail;
+      void addFiles(d.files, i => d.dirs[i]);
+    };
+    window.addEventListener(DROP_EVENT, onDrop);
+    return () => window.removeEventListener(DROP_EVENT, onDrop);
+  }, [projectPath]);
 
   const refreshPopup = async (value: string, caret: number) => {
     const before = value.slice(0, caret);
@@ -210,8 +253,8 @@ export function Composer() {
   };
 
   const submit = () => {
-    if (!text.trim() && !images.length) return;
-    void send(text, images);
+    if (!text.trim() && !images.length && !files.length) return;
+    void send(text, images, files);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -238,13 +281,16 @@ export function Composer() {
             ))}
           </div>
         )}
-        {images.length > 0 && (
+        {(images.length > 0 || files.length > 0) && (
           <div className="attachments">
             {images.map((img, i) => (
               <div className="thumb" key={i} title={img.name}>
                 <img src={`data:${img.mediaType};base64,${img.data}`} alt={img.name} />
                 <button onClick={() => setImages(cur => cur.filter((_, j) => j !== i))} title="移除"><Icon name="x" size={12} /></button>
               </div>
+            ))}
+            {files.map(f => (
+              <FileChip key={f.path} path={f.path} size={f.size} isDir={f.isDir} onRemove={() => setFiles(cur => cur.filter(x => x.path !== f.path))} />
             ))}
           </div>
         )}
@@ -254,25 +300,26 @@ export function Composer() {
           rows={1}
           value={text}
           disabled={!projectPath}
-          placeholder={projectPath ? '给 Claude 发消息，@ 引用文件，/ 打开命令和 Skills，可以直接粘贴图片' : '先在左边添加一个项目'}
+          placeholder={projectPath ? '给 Claude 发消息，@ 引用文件，/ 打开命令和 Skills，可以拖入或粘贴文件、图片' : '先在左边添加一个项目'}
           onChange={e => { setText(e.target.value); void refreshPopup(e.target.value, e.target.selectionStart); }}
           onClick={e => void refreshPopup(e.currentTarget.value, e.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onPaste={e => {
-            const files = [...e.clipboardData.files].filter(f => f.type.startsWith('image/'));
-            if (files.length) { e.preventDefault(); void addImages(files); }
+            // 截图、在资源管理器里复制的文件都会出现在 files 里；纯文字粘贴时是空的
+            const pasted = [...e.clipboardData.files];
+            if (pasted.length) { e.preventDefault(); void addFiles(pasted); }
           }}
         />
         <div className="cbar">
-          <button className="chip" title="添加图片" onClick={() => fileInput.current?.click()}><Icon name="plus" /></button>
-          <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={e => { void addImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
+          <button className="chip" title="添加文件或图片（也可以直接拖进来）" data-testid="attach-button" onClick={() => fileInput.current?.click()}><Icon name="plus" /></button>
+          <input ref={fileInput} type="file" multiple hidden data-testid="attach-input" onChange={e => { void addFiles([...(e.target.files ?? [])]); e.target.value = ''; }} />
           <span className="sp" />
           <ModelPicker />
           <UsageRing />
           {running ? (
             <button className="send" data-testid="stop-button" title="停止（Esc）" onClick={() => void interrupt()}><Icon name="stop" /></button>
           ) : (
-            <button className="send" data-testid="send-button" title="发送（Enter）" disabled={!projectPath || (!text.trim() && !images.length)} onClick={submit}><Icon name="up" /></button>
+            <button className="send" data-testid="send-button" title="发送（Enter）" disabled={!projectPath || (!text.trim() && !images.length && !files.length)} onClick={submit}><Icon name="up" /></button>
           )}
         </div>
       </div>

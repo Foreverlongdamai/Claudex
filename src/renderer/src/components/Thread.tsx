@@ -4,6 +4,7 @@ import type { ModeId, PermissionRequest } from '@shared/types';
 import { useStore } from '../store';
 import type { Item } from '../timeline';
 import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine } from '../toolView';
+import { FileChip } from './FileChip';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 
@@ -297,6 +298,7 @@ function ItemView({ item, convId, projectPath }: { item: Item; convId: string; p
                 {item.images > 0 && <span className="chip-mode"><Icon name="image" size={12} />{item.images} 张图片</span>}
               </div>
             )}
+            {item.files.length > 0 && <div className="bubble-files">{item.files.map(f => <FileChip key={f} path={f} />)}</div>}
             {item.text}
           </div>
         </div>

@@ -1,12 +1,13 @@
 // 把 SDK 消息流整理成界面上的时间线（纯函数，不依赖 React，方便测试）。
 // 实时对话：先收到逐字的 stream_event，再收到完整的 assistant 消息（每个内容块一条）；
 // 打开历史对话：只有完整消息（来自 getSessionMessages）。两种来源走同一套逻辑。
+import { splitAttachments } from '../../shared/attachments.ts'; // 相对路径：单元测试直接用 node 跑这个文件，不认 @shared 别名
 import type { PermissionRequest, SdkMessageLike } from '@shared/types';
 
 export type ToolStatus = 'running' | 'done' | 'error' | 'denied';
 
 export type Item =
-  | { kind: 'user'; id: string; text: string; images: number; skillsMode: boolean }
+  | { kind: 'user'; id: string; text: string; images: number; skillsMode: boolean; files: string[] }
   | { kind: 'text'; id: string; msgId: string; text: string; streaming: boolean }
   | { kind: 'thinking'; id: string; msgId: string; text: string; startedAt: number; endedAt?: number }
   | {
@@ -76,8 +77,8 @@ const DENIED = /doesn't want to proceed|user rejected|用户拒绝|已取消|den
 
 // ---------------- 本地事件 ----------------
 
-export function addUser(t: Timeline, text: string, images: number, skillsMode: boolean): Timeline {
-  return push(t, { kind: 'user', id: uid('user'), text, images, skillsMode });
+export function addUser(t: Timeline, text: string, images: number, skillsMode: boolean, files: string[] = []): Timeline {
+  return push(t, { kind: 'user', id: uid('user'), text, images, skillsMode, files });
 }
 
 export function addApproval(t: Timeline, request: PermissionRequest): Timeline {
@@ -215,10 +216,11 @@ function applyUser(t: Timeline, m: Record<string, any>, live: boolean): Timeline
   if (live || m.isSynthetic || m.isReplay) return t;
   const raw = contentText(content);
   if (/^\[Request interrupted/i.test(raw)) return addNotice(t, 'info', '已停止');
-  const { text, skillsMode } = stripModeWrapper(raw);
-  if (!text.trim() || /^<(local-command|command-name|system-reminder)/.test(text.trim())) return t;
+  const unwrapped = stripModeWrapper(raw);
+  const { text, files } = splitAttachments(unwrapped.text);
+  if ((!text.trim() && !files.length) || /^<(local-command|command-name|system-reminder)/.test(text.trim())) return t;
   const images = Array.isArray(content) ? content.filter((c: any) => c?.type === 'image').length : 0;
-  return addUser(t, text.replace(/\[图片\]\n?/g, ''), images, skillsMode);
+  return addUser(t, text.replace(/\[图片\]\n?/g, ''), images, unwrapped.skillsMode, files);
 }
 
 function hasDeniedApproval(t: Timeline, toolUseId: string): boolean {

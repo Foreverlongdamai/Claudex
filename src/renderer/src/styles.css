@@ -347,3 +347,20 @@ pre.out { margin: 0; padding: 10px 14px; font: 12.5px/1.6 var(--mono); backgroun
 .term-host { flex: 1; min-height: 0; padding: 6px 4px 4px 12px; }
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { background-color: transparent !important; }
+
+/* ---------- 附件：文件小卡片、拖放提示 ---------- */
+.chat { position: relative; }
+.attachments { align-items: center; }
+.file-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 300px; height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); font-size: 12.5px; color: var(--text); flex: none; }
+.file-chip svg { flex: none; color: var(--muted); }
+.fc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fc-meta { color: var(--faint); font-size: 11px; flex: none; }
+.fc-x { border: 0; background: transparent; color: var(--faint); display: flex; padding: 3px; border-radius: 6px; flex: none; }
+.fc-x:hover { background: var(--hover); color: var(--text); }
+.bubble-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.bubble .file-chip { background: var(--elev); border-color: var(--border); }
+.drop-overlay { position: absolute; inset: 8px; z-index: 40; border: 2px dashed var(--faint); border-radius: 16px; background: color-mix(in srgb, var(--bg) 80%, transparent); display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.drop-overlay.terminal { align-items: flex-end; padding-bottom: 72px; }
+.drop-card { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; max-width: 440px; padding: 18px 24px; border-radius: 14px; background: var(--elev); border: 1px solid var(--border); box-shadow: var(--comp-shadow); }
+.drop-card b { font-size: 15px; }
+.drop-card span { font-size: 12.5px; color: var(--muted); line-height: 1.6; }

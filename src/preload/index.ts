@@ -1,5 +1,5 @@
 // 把主进程的能力以 window.claudex 的形式安全地暴露给界面（contextIsolation + sandbox）。
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { API_METHODS, EVENT_CHANNEL, SEND_METHODS, TERM_CHANNEL, channel } from '../shared/ipc';
 import type { ClaudexApi, ConvEvent, TermEvent } from '../shared/types';
 
@@ -16,7 +16,14 @@ const api = {
   ...invokers,
   ...senders,
   onEvent: (cb: (ev: ConvEvent) => void) => listen(EVENT_CHANNEL, cb),
-  onTerm: (cb: (ev: TermEvent) => void) => listen(TERM_CHANNEL, cb)
+  onTerm: (cb: (ev: TermEvent) => void) => listen(TERM_CHANNEL, cb),
+  pathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  }
 } as ClaudexApi;
 
 contextBridge.exposeInMainWorld('claudex', api);

@@ -71,7 +71,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'termWrite' | 'termResize'> = {
+  const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'termWrite' | 'termResize' | 'pathForFile'> = {
     getState: async () => store.state,
     getEnv: async (): Promise<EnvInfo> => {
       const gb = gitBash();
@@ -101,7 +101,7 @@ function registerIpc(): void {
     newConversation: async p => store.newConversation(p),
     openConversation: id => manager.open(id),
     deleteConversation: async id => { manager.delete(id); terminals.closeKeys(k => k === id); store.removeConversation(id); return store.state; },
-    send: (id, text, images) => manager.send(id, text, images),
+    send: (id, text, images, files) => manager.send(id, text, images, files),
     interrupt: async id => { await manager.interrupt(id); },
     setMode: (id, mode) => manager.setMode(id, mode),
     setModel: (id, model, effort) => manager.setModel(id, model, effort),

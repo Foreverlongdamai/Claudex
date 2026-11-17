@@ -15,3 +15,10 @@ spikes/m0/results/*.png
 # 端到端测试的临时项目、数据和截图
 tests/e2e/.tmp/
 tests/e2e/.out/
+# 验证脚本生成的样本和临时目录
+spikes/files/samples/
+spikes/files/proj/
+spikes/files/*.wav
+spikes/files/*.mp4
+# 用户自己建的快捷方式
+*.lnk

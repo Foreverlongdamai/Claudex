@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { ShellInfo, ShellKind, TermInfo } from '@shared/types';
+import { TERM_DROP_EVENT, type DroppedFiles } from '../drop';
 import { useStore } from '../store';
 import { Icon } from './Icon';
 
@@ -21,6 +22,15 @@ const THEMES: Record<'dark' | 'light', ITheme> = {
 };
 
 const exitMessage = (code?: number) => `\r\n\x1b[90m[进程已退出${code !== undefined ? `（代码 ${code}）` : ''}。按任意键重新启动]\x1b[0m\r\n`;
+
+/** 粘贴到终端里的路径：带空格等特殊字符时按 shell 的规矩加引号 */
+function quotePath(p: string, shell: ShellKind): string {
+  if (/^[\w.:\\/-]+$/.test(p)) return p;
+  if (shell === 'cmd') return `"${p}"`;
+  // bash 单引号里不能有单引号：先结束引号、转义一个单引号、再开始引号
+  if (shell === 'gitbash') return `'${p.split("'").join(`'\\''`)}'`;
+  return `'${p.split("'").join("''")}'`;
+}
 
 function savedHeight(): number {
   try {
@@ -183,6 +193,20 @@ export function TerminalPanel() {
   }, [open, key, cwd]);
 
   useEffect(() => { if (term.current) term.current.options.theme = THEMES[theme]; }, [theme]);
+
+  // 把文件拖到终端上：像 Windows Terminal 一样，把路径（按当前 shell 的规矩加好引号）粘贴进去
+  useEffect(() => {
+    const onDrop = (e: Event) => {
+      const c = current.current, t = term.current;
+      if (!c || !t || exited.current) return;
+      const paths = (e as CustomEvent<DroppedFiles>).detail.files.map(f => api.pathForFile(f)).filter(Boolean);
+      if (!paths.length) return;
+      t.paste(paths.map(p => quotePath(p, c.shell)).join(' ') + ' ');
+      t.focus();
+    };
+    window.addEventListener(TERM_DROP_EVENT, onDrop);
+    return () => window.removeEventListener(TERM_DROP_EVENT, onDrop);
+  }, []);
 
   useEffect(() => {
     if (!host.current) return;
