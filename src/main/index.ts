@@ -1,13 +1,17 @@
 // Claudex 主进程：窗口、IPC、对话进程管理。
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_METHODS, channel, EVENT_CHANNEL, TERM_CHANNEL } from '../shared/ipc';
+import { API_METHODS, channel, EVENT_CHANNEL, GIT_CHANNEL, TERM_CHANNEL } from '../shared/ipc';
 import type { ClaudexApi, ConvEvent, EnvInfo } from '../shared/types';
 import { SessionManager } from './claude/manager';
+import { writeCommitMessage } from './commitMessage';
 import { detectGitBash, relayHost, sessionEnv } from './environment';
+import * as git from './git';
 import { log } from './log';
 import { checkProject, gitBranch, listFiles, projectMcpServers } from './projects';
+import { ReviewManager } from './review';
 import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
 
@@ -24,9 +28,20 @@ let win: BrowserWindow | null = null;
 let store: Store;
 let manager: SessionManager;
 let terminals: TerminalManager;
+let review: ReviewManager;
 
-const emit = (ev: ConvEvent) => win?.webContents.send(EVENT_CHANNEL, ev);
+const emit = (ev: ConvEvent) => {
+  win?.webContents.send(EVENT_CHANNEL, ev);
+  review?.onConvEvent(ev); // 一轮结束时给“上一轮”拍结束快照
+};
 const gitBash = () => detectGitBash(store.state.prefs.gitBashPath);
+/** 撤销新文件：移到回收站，不直接删（自动化测试设 CLAUDEX_TRASH_DIR，移到那个目录，不碰系统回收站） */
+const trash = async (p: string) => {
+  const dir = process.env.CLAUDEX_TRASH_DIR;
+  if (!dir) return shell.trashItem(p);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.renameSync(p, path.join(dir, `${Date.now()}-${path.basename(p)}`));
+};
 
 /** 没批准过的项目 MCP 服务器一律不启动 */
 function disabledMcp(projectPath: string): string[] {
@@ -71,7 +86,7 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
-  const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'termWrite' | 'termResize' | 'pathForFile'> = {
+  const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'onGit' | 'termWrite' | 'termResize' | 'pathForFile'> = {
     getState: async () => store.state,
     getEnv: async (): Promise<EnvInfo> => {
       const gb = gitBash();
@@ -93,15 +108,20 @@ function registerIpc(): void {
     addProject: async p => { store.addProject(p); return store.state; },
     removeProject: async p => {
       const convIds = new Set(store.state.conversations.filter(c => samePath(c.projectPath, p)).map(c => c.id));
-      for (const id of convIds) manager.delete(id);
+      for (const id of convIds) { manager.delete(id); review.forget(id); }
       terminals.closeKeys(k => convIds.has(k) || (k.startsWith('project:') && samePath(k.slice(8), p)));
       store.removeProject(p);
       return store.state;
     },
     newConversation: async p => store.newConversation(p),
     openConversation: id => manager.open(id),
-    deleteConversation: async id => { manager.delete(id); terminals.closeKeys(k => k === id); store.removeConversation(id); return store.state; },
-    send: (id, text, images, files) => manager.send(id, text, images, files),
+    deleteConversation: async id => { manager.delete(id); review.forget(id); terminals.closeKeys(k => k === id); store.removeConversation(id); return store.state; },
+    send: async (id, text, images, files) => {
+      // 先给“上一轮”拍开始快照
+      const meta = store.conversation(id);
+      if (meta) await review.turnStart(id, meta.projectPath);
+      return manager.send(id, text, images, files);
+    },
     interrupt: async id => { await manager.interrupt(id); },
     setMode: (id, mode) => manager.setMode(id, mode),
     setModel: (id, model, effort) => manager.setModel(id, model, effort),
@@ -125,7 +145,21 @@ function registerIpc(): void {
     termOpen: async (key, cwd, sh, size) => terminals.open(key, cwd, sh, size),
     termRestart: async (id, sh, size) => terminals.restart(id, sh, size),
     termKill: async id => terminals.close(id),
-    termRekey: async (from, to) => terminals.rekey(from, to)
+    termRekey: async (from, to) => terminals.rekey(from, to),
+    // ---- Git 审查和提交（C2） ----
+    gitStatus: cwd => git.status(cwd),
+    gitDiff: (cwd, scope, convId) => (scope === 'turn' ? review.diff(convId, cwd) : git.scopeDiff(cwd, scope)),
+    gitStage: (cwd, paths) => git.stage(cwd, paths),
+    gitUnstage: (cwd, paths) => git.unstage(cwd, paths),
+    gitRevert: async (cwd, scope, paths, convId) => {
+      if (scope === 'turn') await review.revert(convId, paths, trash);
+      else if (scope === 'unstaged') await git.revertUnstaged(cwd, paths, trash);
+      else throw new Error('这个范围里不能撤销');
+    },
+    gitCommit: (cwd, req) => git.commit(cwd, req, root => writeCommitMessage(root, sessionEnv(gitBash().path, app.getVersion()))),
+    gitInit: cwd => git.init(cwd),
+    gitCheckBranch: (cwd, name) => git.checkBranchName(cwd, name),
+    gitWatch: cwd => review.watch(cwd)
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
@@ -153,6 +187,7 @@ if (!app.requestSingleInstanceLock()) {
       log
     });
     terminals = new TerminalManager(ev => win?.webContents.send(TERM_CHANNEL, ev), () => gitBash().path, log);
+    review = new ReviewManager(app.getPath('userData'), ev => win?.webContents.send(GIT_CHANNEL, ev), log);
     registerIpc();
     createWindow();
     log(`Claudex ${app.getVersion()} 启动；Git Bash：${gitBash().path ?? '没找到'}`);
@@ -161,6 +196,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     manager?.closeAll();
     terminals?.closeAll();
+    review?.close();
     store?.saveNow();
   });
 }

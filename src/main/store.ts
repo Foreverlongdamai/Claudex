@@ -35,7 +35,8 @@ function defaultPrefs(): Prefs {
     theme: s.theme === 'light' ? 'light' : 'dark',
     skipBypassConfirm: false,
     blacklist: DEFAULT_BLACKLIST,
-    terminalShell: 'powershell'
+    terminalShell: 'powershell',
+    reviewWidth: 460
   };
 }
 

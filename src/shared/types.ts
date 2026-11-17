@@ -1,4 +1,7 @@
 // 主进程、preload、界面三方共用的类型。界面能调用什么、主进程会推什么事件，都以这里为准。
+import type { DiffFile } from './gitDiff';
+
+export type { DiffFile, DiffLine } from './gitDiff';
 
 /** 5 个模式：前 4 个是 Claude Code 自带的，skills 是 Claudex 自定义的“Skills 配置”。 */
 export type ModeId = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'skills';
@@ -79,6 +82,8 @@ export interface Prefs {
   blacklist: BlacklistRule[];
   /** 内置终端默认用的 shell */
   terminalShell: ShellKind;
+  /** 改动面板的宽度（像素） */
+  reviewWidth: number;
 }
 
 export interface AppState {
@@ -176,6 +181,80 @@ export interface ImageAttachment {
   name: string;
 }
 
+// ---------------- Git 审查和提交（C2） ----------------
+
+/** 改动面板的 4 个范围：上一轮（Claude 上一轮回复里改的）、未暂存、已暂存、整个分支 */
+export type GitScope = 'turn' | 'unstaged' | 'staged' | 'branch';
+
+export interface GitFileState {
+  /** 相对仓库根目录 */
+  path: string;
+  /** 重命名前的路径 */
+  origPath?: string;
+  /** 暂存区的状态（git status 的 X，'.' 表示没变） */
+  x: string;
+  /** 工作区的状态（git status 的 Y） */
+  y: string;
+  untracked: boolean;
+  conflicted: boolean;
+}
+
+export interface GitStatus {
+  repo: boolean;
+  /** 仓库根目录 */
+  root: string | null;
+  /** 当前分支；分离 HEAD 时为 null */
+  branch: string | null;
+  detached: boolean;
+  /** 还没有任何提交 */
+  unborn: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  /** 默认分支（main / master） */
+  defaultBranch: string | null;
+  hasRemote: boolean;
+  files: GitFileState[];
+  /** 全部未提交改动（已暂存、未暂存、新文件）的行数 */
+  add: number;
+  del: number;
+}
+
+export interface GitDiffResult {
+  scope: GitScope;
+  /** 这个范围是什么，比如“相对 origin/main：还没推送的提交和未提交的改动” */
+  desc: string;
+  files: DiffFile[];
+  /** 没有文件时显示什么 */
+  empty?: string;
+  /** 上一轮：这一轮还在进行，显示到现在为止的改动 */
+  live?: boolean;
+}
+
+export type CommitKind = 'commit' | 'push' | 'pr';
+
+export interface CommitRequest {
+  /** 留空让 Claude 来写 */
+  message: string;
+  kind: CommitKind;
+  /** 开 PR 时在默认分支上：先切到这个新分支再提交 */
+  newBranch?: string;
+}
+
+export interface CommitResult {
+  branch: string | null;
+  commit?: { hash: string; subject: string; message: string; files: number; generated: boolean };
+  /** 推送到了哪里，例如 origin/main */
+  pushed?: string;
+  prUrl?: string;
+  /** 出错的那一步和原因；前面成功的步骤照样返回 */
+  error?: { step: 'message' | 'branch' | 'commit' | 'push' | 'pr'; message: string };
+}
+
+export type GitEvent =
+  | { kind: 'dirty'; root: string }
+  | { kind: 'turn'; convId: string };
+
 /** SDK 消息原样转发，界面自己解析 */
 export type SdkMessageLike = { type: string; [k: string]: unknown };
 
@@ -241,4 +320,19 @@ export interface ClaudexApi {
   termWrite(id: string, data: string): void;
   termResize(id: string, cols: number, rows: number): void;
   onTerm(cb: (ev: TermEvent) => void): () => void;
+  // ---- Git 审查和提交（C2） ----
+  gitStatus(cwd: string): Promise<GitStatus>;
+  /** convId：上一轮要知道是哪个对话 */
+  gitDiff(cwd: string, scope: GitScope, convId: string | null): Promise<GitDiffResult>;
+  gitStage(cwd: string, paths: string[]): Promise<void>;
+  gitUnstage(cwd: string, paths: string[]): Promise<void>;
+  /** 撤销改动。上一轮：恢复成这一轮开始前的样子；未暂存：恢复成暂存区里的样子。新文件移到回收站 */
+  gitRevert(cwd: string, scope: GitScope, paths: string[], convId: string | null): Promise<void>;
+  gitCommit(cwd: string, req: CommitRequest): Promise<CommitResult>;
+  gitInit(cwd: string): Promise<void>;
+  /** 检查新分支名能不能用，能用返回 null，否则返回原因 */
+  gitCheckBranch(cwd: string, name: string): Promise<string | null>;
+  /** 监视这个目录所在仓库的文件变化（同时只监视一个），有变化时推 dirty 事件；null 停止监视 */
+  gitWatch(cwd: string | null): Promise<void>;
+  onGit(cb: (ev: GitEvent) => void): () => void;
 }

@@ -12,7 +12,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test:unit": "node tests/unit/blacklist.test.ts && node tests/unit/modes.test.ts && node tests/unit/timeline.test.ts && node tests/unit/attachments.test.ts",
+    "test:unit": "node tests/unit/blacklist.test.ts && node tests/unit/modes.test.ts && node tests/unit/timeline.test.ts && node tests/unit/attachments.test.ts && node tests/unit/gitDiff.test.ts && node tests/unit/git.test.ts",
     "test:e2e": "electron-vite build && node tests/e2e/run.mjs"
   },
   "dependencies": {

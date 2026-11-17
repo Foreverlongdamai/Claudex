@@ -9,7 +9,10 @@ export function TopBar() {
   const settings = useCurrentSettings();
   const mode = settings?.mode;
   const terminalOpen = useStore(s => s.terminalOpen);
+  const reviewOpen = useStore(s => s.reviewOpen);
+  const git = useStore(s => (project ? s.git[project.path] : undefined));
   const hasProject = !!project;
+  const changed = git?.repo ? git.files.length : 0;
   return (
     <div className="topbar drag">
       <span className="tt">{conv ? conv.meta.title : project ? '新对话' : 'Claudex'}</span>
@@ -20,6 +23,13 @@ export function TopBar() {
       {hasProject && (
         <button className={`tbtn${terminalOpen ? ' on' : ''}`} data-testid="terminal-button" title="内置终端（Ctrl+`）" onClick={() => useStore.getState().toggleTerminal()}>
           <Icon name="term" size={14} />终端
+        </button>
+      )}
+      {hasProject && (
+        <button className={`tbtn${reviewOpen ? ' on' : ''}`} data-testid="review-button" title={changed ? `${changed} 个文件有改动，点开审查和提交` : '改动面板：审查和提交'}
+          onClick={() => useStore.getState().toggleReview()}>
+          <Icon name="panel" size={14} />
+          {changed ? <span className="tstat" data-testid="diff-stat"><span className="add">+{git!.add}</span><span className="del">−{git!.del}</span></span> : '改动'}
         </button>
       )}
     </div>

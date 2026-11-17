@@ -5,6 +5,9 @@ import { splitAttachments } from '../../shared/attachments.ts'; // 相对路径�
 import type { PermissionRequest, SdkMessageLike } from '@shared/types';
 
 export type ToolStatus = 'running' | 'done' | 'error' | 'denied';
+/** ok：App 自己做完的事（比如提交、推送） */
+export type NoticeTone = 'info' | 'ok' | 'error' | 'blocked';
+export interface NoticeLink { label: string; url: string }
 
 export type Item =
   | { kind: 'user'; id: string; text: string; images: number; skillsMode: boolean; files: string[] }
@@ -15,7 +18,7 @@ export type Item =
       output?: string; extra?: unknown; startedAt: number; endedAt?: number; subSteps: number;
     }
   | { kind: 'approval'; id: string; request: PermissionRequest; resolved?: 'allow' | 'always' | 'deny' | 'cancelled'; note?: string }
-  | { kind: 'notice'; id: string; tone: 'info' | 'error' | 'blocked'; text: string; detail?: string }
+  | { kind: 'notice'; id: string; tone: NoticeTone; text: string; detail?: string; link?: NoticeLink }
   | { kind: 'turn-end'; id: string; durationMs: number; costUsd?: number; isError: boolean };
 
 export interface InitInfo {
@@ -90,8 +93,8 @@ export function resolveApproval(t: Timeline, requestId: string, resolved: 'allow
   return update(t, requestId, 'approval', () => ({ resolved, note }));
 }
 
-export function addNotice(t: Timeline, tone: 'info' | 'error' | 'blocked', text: string, detail?: string): Timeline {
-  return push(t, { kind: 'notice', id: uid('notice'), tone, text, detail });
+export function addNotice(t: Timeline, tone: NoticeTone, text: string, detail?: string, link?: NoticeLink): Timeline {
+  return push(t, { kind: 'notice', id: uid('notice'), tone, text, detail, link });
 }
 
 /** 有没有还在等回答的审批 */

@@ -24,8 +24,19 @@ fs.writeFileSync(path.join(project, 'src', 'utils.js'), 'export function greet(n
 fs.writeFileSync(path.join(project, '.mcp.json'), JSON.stringify({ mcpServers: { 'e2e-untrusted': { command: 'node', args: ['-e', 'setInterval(()=>{},1000)'] } } }, null, 2));
 const git = (...args) => execFileSync('git', args, { cwd: project, stdio: 'ignore' });
 git('init', '-b', 'main');
+git('config', 'user.name', 'e2e');
+git('config', 'user.email', 'e2e@example.invalid');
+git('config', 'core.autocrlf', 'false');
 git('add', '.');
-git('-c', 'user.name=e2e', '-c', 'user.email=e2e@example.invalid', 'commit', '-m', 'init');
+git('commit', '-m', 'init');
+// 改动面板（C2）的推送用：本地的空仓库当远程
+const remoteRepo = path.join(work, 'remote.git');
+execFileSync('git', ['init', '-q', '--bare', remoteRepo], { stdio: 'ignore' });
+git('remote', 'add', 'origin', remoteRepo);
+git('push', '-q', '-u', 'origin', 'main');
+// 开 PR 用假的 gh（记下参数，返回假的 PR 地址）；撤销的新文件移到这里，不进系统回收站
+const ghLog = path.join(work, 'gh.log');
+const trashDir = path.join(work, 'trash');
 
 // ---------- 小工具 ----------
 const results = [];
@@ -40,7 +51,13 @@ async function waitFor(fn, timeout = 120000, label = '条件') {
 }
 let app, win;
 async function launch() {
-  app = await electron.launch({ args: ['.'], cwd: root, env: { ...process.env, CLAUDEX_USER_DATA: userData } });
+  app = await electron.launch({
+    args: ['.'], cwd: root,
+    env: {
+      ...process.env, CLAUDEX_USER_DATA: userData,
+      CLAUDEX_GH: path.join(root, 'tests', 'unit', 'fake-gh.mjs'), CLAUDEX_GH_LOG: ghLog, CLAUDEX_TRASH_DIR: trashDir
+    }
+  });
   win = await app.firstWindow();
   await win.waitForSelector('.app, .welcome', { timeout: 30000 });
 }
@@ -509,6 +526,189 @@ await step('27 拖放：拖到对话区出现提示、松开成为附件；拖�
   await shot('27-drop-terminal');
   await win.locator('.term-host').click();
   await win.keyboard.press('Control+c');
+});
+
+// ---------- C2：改动面板（Git 审查和提交） ----------
+const gitOut = (...args) => execFileSync('git', args, { cwd: project, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const remoteHead = ref => execFileSync('git', ['rev-parse', ref], { cwd: remoteRepo, encoding: 'utf8' }).trim();
+const utilsFile = path.join(project, 'src', 'utils.js');
+const readUtils = () => fs.readFileSync(utilsFile, 'utf8');
+const reviewFiles = () => win.locator('[data-testid=review-file]').evaluateAll(els => els.map(e => e.getAttribute('data-path')));
+const fileCard = p => win.locator(`[data-testid=review-file][data-path="${p}"]`);
+async function scope(id) { await win.locator(`.rev-seg [data-scope=${id}]`).click(); }
+async function waitFiles(expected, label) {
+  let last;
+  await waitFor(async () => JSON.stringify(last = await reviewFiles()) === JSON.stringify(expected), 15000, `${label}：应该是 ${JSON.stringify(expected)}，实际 ${JSON.stringify(last)}`);
+}
+const lastOk = () => win.locator('[data-testid=notice-ok]').last();
+async function waitOk(text, timeout = 60000) {
+  await waitFor(async () => (await lastOk().innerText()).includes(text), timeout, `提示“${text}”`);
+}
+const stat = async () => (await win.locator('[data-testid=diff-stat]').count()) ? (await win.locator('[data-testid=diff-stat]').innerText()).replace(/\s/g, '') : null;
+
+await step('28 改动面板：顶栏显示改动统计，“未暂存”里看到修改和新文件', async () => {
+  if (await win.locator('.term-panel').count()) await win.locator('[data-testid=terminal-button]').click();
+  // 先把前面步骤留下的改动提交掉，从干净的状态开始
+  gitOut('add', '-A');
+  try { gitOut('commit', '-q', '-m', 'e2e: 前面步骤留下的改动'); } catch { /* 没有改动 */ }
+  await waitFor(async () => (await stat()) === null, 15000, '顶栏没有改动统计');
+  fs.appendFileSync(path.join(project, 'README.md'), '新的一行\n');
+  fs.writeFileSync(path.join(project, 'notes.txt'), '第一行\n第二行\n');
+  let s;
+  await waitFor(async () => (s = await stat()) === '+3−0', 15000, `顶栏的改动统计 +3 −0（实际 ${s}）`);
+  await win.locator('[data-testid=review-button]').click();
+  await win.waitForSelector('[data-testid=review-panel]');
+  await scope('unstaged');
+  await waitFiles(['README.md', 'notes.txt'], '未暂存的文件');
+  if (!(await fileCard('notes.txt').innerText()).includes('新文件')) throw new Error('新文件没有标出来');
+  if ((await fileCard('README.md').locator('.dl.add').count()) !== 1) throw new Error('README.md 应该有 1 行新增');
+  if (!(await win.locator('[data-testid=commit-info]').innerText()).includes('全部 2 个文件')) throw new Error('提交框的说明不对');
+  await shot('28-review-unstaged');
+});
+
+await step('29 暂存、取消暂存、撤销（撤销要点两次，新文件移到回收站）', async () => {
+  await fileCard('README.md').locator('[data-testid=stage-file]').click();
+  await waitFiles(['notes.txt'], '暂存后，未暂存里只剩 notes.txt');
+  await scope('staged');
+  await waitFiles(['README.md'], '已暂存');
+  if (gitOut('diff', '--cached', '--name-only') !== 'README.md') throw new Error('git 里没暂存上');
+  if (!(await win.locator('[data-testid=commit-info]').innerText()).includes('已暂存的 1 个文件')) throw new Error('提交框没显示“已暂存的 1 个文件”');
+  await fileCard('README.md').locator('[data-testid=unstage-file]').click();
+  await win.waitForSelector('[data-testid=review-empty]');
+  await scope('unstaged');
+  await waitFiles(['README.md', 'notes.txt'], '取消暂存后');
+  const revert = fileCard('notes.txt').locator('[data-testid=revert-file]');
+  await revert.click();
+  if ((await revert.innerText()) !== '确定撤销？') throw new Error('点一次应该先问“确定撤销？”');
+  if (!fileExists('notes.txt')) throw new Error('点一次就撤销了');
+  await revert.click();
+  await waitFiles(['README.md'], '撤销新文件后');
+  if (fileExists('notes.txt')) throw new Error('新文件还在');
+  if (!fs.readdirSync(trashDir).some(f => f.endsWith('notes.txt'))) throw new Error('新文件没有移到回收站');
+  const r2 = fileCard('README.md').locator('[data-testid=revert-file]');
+  await r2.click();
+  await r2.click();
+  await win.waitForSelector('[data-testid=review-empty]');
+  if (fs.readFileSync(path.join(project, 'README.md'), 'utf8').includes('新的一行')) throw new Error('README.md 没恢复');
+  await waitFor(async () => (await stat()) === null, 10000, '顶栏的统计消失');
+});
+
+await step('30 行内评论：发给 Claude，Claude 照着改；“上一轮”只算这一轮改的文件', async () => {
+  fs.writeFileSync(utilsFile, 'export function greet(name) {\n  return "hello " + name;\n}\n');
+  gitOut('add', '-A');
+  try { gitOut('commit', '-q', '-m', 'e2e: 重置 utils.js'); } catch { /* 本来就一样 */ }
+  fs.writeFileSync(utilsFile, 'export const VERSION = 1;\n\nexport function greet(name) {\n  return "hello " + name;\n}\n');
+  fs.writeFileSync(path.join(project, 'scratch.txt'), '我自己的草稿\n');
+  await setMode('acceptEdits');
+  await waitFiles(['scratch.txt', 'src/utils.js'], '未暂存');
+  const line = fileCard('src/utils.js').locator('[data-testid=diff-line]', { hasText: 'return "hello " + name;' });
+  await line.hover();
+  await line.locator('[data-testid=comment-button]').click();
+  await win.locator('[data-testid=comment-input]').fill('把这一行改成模板字符串：return `hello ${name}`;\n只用 Edit 工具改这一处，不要运行任何命令，改完回复 DONE。');
+  await shot('30-comment-box');
+  await win.locator('[data-testid=comment-send]').click();
+  await waitFor(async () => (await win.locator('.msg.user').last().innerText()).includes('【代码评论】src/utils.js 第 4 行'), 10000, '评论作为消息发出去');
+  if ((await win.locator('.cnote').count()) < 1) throw new Error('评论下面没显示“已发给 Claude”');
+  await waitTurn();
+  if (!readUtils().includes('`hello ${name}`')) throw new Error('Claude 没照评论改：' + readUtils());
+  await scope('turn');
+  await waitFiles(['src/utils.js'], '上一轮只有 utils.js（scratch.txt 是自己改的，不算）');
+  if (!(await win.locator('[data-testid=review-desc]').innerText()).includes('上一轮')) throw new Error('上一轮的说明不对');
+  if ((await fileCard('src/utils.js').locator('.dl.add').count()) !== 1) throw new Error('上一轮里应该只有 1 行新增（VERSION 那行是之前就有的）');
+  await shot('30-review-turn');
+});
+
+await step('31 撤销这一轮：恢复成这一轮开始前的样子，自己的改动不受影响', async () => {
+  const btn = win.locator('[data-testid=revert-turn]');
+  await btn.click();
+  await btn.click();
+  await waitFor(async () => !readUtils().includes('`hello'), 10000, 'utils.js 恢复');
+  const content = readUtils();
+  if (!content.includes('VERSION') || !content.includes('"hello " + name')) throw new Error('没有恢复成这一轮开始前的样子：' + content);
+  if (!fileExists('scratch.txt')) throw new Error('自己的改动被撤销了');
+  await win.waitForSelector('[data-testid=review-empty]');
+  if (!(await win.locator('[data-testid=review-empty]').innerText()).includes('都撤销了')) throw new Error('撤销后上一轮应该显示“都撤销了”');
+});
+
+await step('32 提交：写了说明就用这个说明；留空让 Claude 来写', async () => {
+  await scope('unstaged');
+  await waitFiles(['scratch.txt', 'src/utils.js'], '未暂存');
+  await win.locator('[data-testid=commit-message]').fill('e2e: 手写的提交说明');
+  await win.locator('[data-testid=commit-button]').click();
+  await waitOk('已提交：e2e: 手写的提交说明', 30000);
+  if (gitOut('log', '-1', '--format=%s') !== 'e2e: 手写的提交说明') throw new Error('git 里的提交说明不对');
+  await win.waitForSelector('[data-testid=review-empty]');
+  if ((await win.locator('[data-testid=commit-message]').inputValue()) !== '') throw new Error('提交后说明没清空');
+  fs.writeFileSync(path.join(project, 'todo.md'), '# 待办\n\n- 给 greet 加单元测试\n');
+  await waitFiles(['todo.md'], '新文件');
+  await win.locator('[data-testid=commit-button]').click();
+  await waitFor(async () => (await win.locator('[data-testid=commit-info]').innerText()).includes('Claude 正在写提交说明'), 5000, '“Claude 正在写提交说明”');
+  await waitOk('提交说明是 Claude 写的', 120000);
+  const msg = gitOut('log', '-1', '--format=%B');
+  if (!msg || msg.includes('```') || /co-authored-by/i.test(msg) || msg === 'e2e: 手写的提交说明') throw new Error('Claude 写的提交说明不对：' + msg);
+  console.log(`      Claude 写的提交说明：${msg.split('\n')[0]}`);
+  await shot('32-commit-generated');
+});
+
+await step('33 推送：“整个分支”看没推送的提交；没有改动时直接推送；提交并推送', async () => {
+  await scope('branch');
+  await waitFor(async () => (await reviewFiles()).includes('todo.md'), 10000, '整个分支里有还没推送的 todo.md');
+  if (!(await win.locator('[data-testid=review-desc]').innerText()).includes('origin/main')) throw new Error('整个分支的说明里应该有 origin/main');
+  await waitFor(async () => (await win.locator('[data-testid=commit-info]').innerText()).includes('个提交还没推送'), 10000, '“还没推送”的提示');
+  if ((await win.locator('[data-testid=commit-button]').innerText()) !== '推送') throw new Error('没有改动时主按钮应该是“推送”');
+  await win.locator('[data-testid=commit-button]').click();
+  await waitOk('已推送到 origin/main');
+  if (remoteHead('main') !== gitOut('rev-parse', 'HEAD')) throw new Error('远程没更新');
+  await win.waitForSelector('[data-testid=review-empty]');
+  fs.appendFileSync(path.join(project, 'todo.md'), '- 写文档\n');
+  await scope('unstaged');
+  await waitFiles(['todo.md'], '改动');
+  await win.locator('[data-testid=commit-message]').fill('e2e: 提交并推送');
+  await win.locator('[data-testid=commit-more]').click();
+  await win.locator('.commit-menu [data-commit=push]').click();
+  await waitOk('已提交并推送：e2e: 提交并推送');
+  if (remoteHead('main') !== gitOut('rev-parse', 'HEAD')) throw new Error('提交并推送后远程没更新');
+});
+
+await step('34 开 PR：在 main 上先起新分支，推送后用 gh 开 PR，提示里能打开链接', async () => {
+  fs.appendFileSync(path.join(project, 'todo.md'), '- 开 PR\n');
+  await waitFiles(['todo.md'], '改动');
+  await win.locator('[data-testid=commit-message]').fill('e2e: 开 PR');
+  await win.locator('[data-testid=commit-more]').click();
+  await win.locator('.commit-menu [data-commit=pr]').click();
+  await win.waitForSelector('[data-testid=pr-branch-input]');
+  await win.locator('[data-testid=pr-branch-input]').fill('main');
+  await win.locator('[data-testid=pr-branch-confirm]').click();
+  await win.waitForSelector('.field-err');
+  await win.locator('[data-testid=pr-branch-input]').fill('e2e/pr-test');
+  await shot('34-pr-branch');
+  await win.locator('[data-testid=pr-branch-confirm]').click();
+  await waitOk('已开 PR：e2e: 开 PR');
+  const notice = await lastOk().innerText();
+  if (!notice.includes('https://github.com/example/demo/pull/7')) throw new Error('提示里没有 PR 地址：' + notice);
+  if ((await lastOk().locator('button', { hasText: '打开 PR' }).count()) !== 1) throw new Error('没有“打开 PR”按钮');
+  const call = JSON.parse(fs.readFileSync(ghLog, 'utf8').trim().split('\n').pop());
+  if (call.args.join(' ') !== 'pr create --fill --base main --head e2e/pr-test') throw new Error('gh 的参数不对：' + call.args.join(' '));
+  if (gitOut('rev-parse', '--abbrev-ref', 'HEAD') !== 'e2e/pr-test') throw new Error('没切到新分支');
+  if (remoteHead('e2e/pr-test') !== gitOut('rev-parse', 'HEAD')) throw new Error('新分支没推送');
+  await waitFor(async () => (await win.locator('.uchip', { hasText: 'e2e/pr-test' }).count()) === 1, 10000, '输入框下面显示新分支');
+  await shot('34-pr-done');
+});
+
+await step('35 不是 Git 仓库的项目：面板里一键初始化', async () => {
+  const plain = path.join(work, 'plain-project');
+  fs.mkdirSync(plain, { recursive: true });
+  fs.writeFileSync(path.join(plain, 'data.csv'), 'a,b\n1,2\n');
+  await win.evaluate(p => window.claudex.addProject(p), plain);
+  await win.reload();
+  await win.waitForSelector('.app');
+  await win.locator('.proj-head', { hasText: 'plain-project' }).click();
+  await win.locator('[data-testid=review-button]').click();
+  await win.waitForSelector('[data-testid=not-repo]');
+  await shot('35-not-repo');
+  await win.locator('[data-testid=git-init]').click();
+  await waitFiles(['data.csv'], '初始化后，未暂存里有 data.csv');
+  if (!fs.existsSync(path.join(plain, '.git'))) throw new Error('没有初始化');
 });
 
 await app.close();

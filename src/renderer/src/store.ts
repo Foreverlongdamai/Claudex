@@ -1,8 +1,8 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, ImageAttachment, McpServerInfo,
-  ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
+  AppState, CommitRequest, CommitResult, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { MODES } from './modes';
 import { addApproval, addNotice, addUser, applySdk, emptyTimeline, resolveApproval, type Timeline } from './timeline';
@@ -23,7 +23,13 @@ export type Dialog =
   | { kind: 'mcp'; projectPath: string; servers: McpServerInfo[] }
   | { kind: 'trust'; check: ProjectCheck }
   | { kind: 'settings' }
+  | { kind: 'pr-branch'; cwd: string; message: string }
   | null;
+
+const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
+  message: 'Claude 写提交说明', branch: '新建分支', commit: '提交', push: '推送', pr: '开 PR'
+};
+const errText = (e: unknown) => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e));
 
 /** 还没发第一条消息的新对话：只记住项目和选好的模式、模型 */
 export interface Draft {
@@ -56,6 +62,17 @@ interface UiState {
   pendingSend: PendingSend | null;
   /** 内置终端面板是否打开 */
   terminalOpen: boolean;
+  // ---- 改动面板（C2） ----
+  reviewOpen: boolean;
+  reviewScope: GitScope;
+  /** 项目路径 → git 状态（顶栏的改动统计、提交框用） */
+  git: Record<string, GitStatus>;
+  /** 文件有变化、一轮结束、做完 git 操作时加 1，改动面板看到变化就重新读 diff */
+  gitTick: number;
+  /** 提交成功时加 1，提交框看到变化就清空 */
+  commitToken: number;
+  /** 正在提交、推送……（显示在提交按钮上） */
+  gitBusy: string | null;
 
   init(): Promise<void>;
   onEvent(ev: ConvEvent): void;
@@ -78,6 +95,15 @@ interface UiState {
   setPrefs(patch: Partial<Prefs>): Promise<void>;
   refreshBranch(projectPath: string): Promise<void>;
   toggleTerminal(open?: boolean): void;
+  onGit(ev: GitEvent): void;
+  toggleReview(open?: boolean): void;
+  setReviewScope(scope: GitScope): void;
+  /** 暂存、取消暂存、撤销；出错时提示 */
+  gitAction(kind: 'stage' | 'unstage' | 'revert', cwd: string, paths: string[], scope?: GitScope): Promise<boolean>;
+  gitInit(cwd: string): Promise<void>;
+  commit(cwd: string, req: CommitRequest): Promise<CommitResult>;
+  /** 当前对话（或草稿）的项目里加一条提示 */
+  notify(tone: 'ok' | 'error', text: string, detail?: string, link?: { label: string; url: string }): void;
 }
 
 let toastSeq = 0;
@@ -117,11 +143,18 @@ export const useStore = create<UiState>((set, get) => {
     sentToken: 0,
     pendingSend: null,
     terminalOpen: false,
+    reviewOpen: false,
+    reviewScope: 'unstaged',
+    git: {},
+    gitTick: 0,
+    commitToken: 0,
+    gitBusy: null,
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
       document.documentElement.dataset.theme = app.prefs.theme;
       api.onEvent(ev => get().onEvent(ev));
+      api.onGit(ev => get().onGit(ev));
       const firstProject = app.projects[0]?.path ?? null;
       set({ app, env, ready: true, activeProject: firstProject, draft: firstProject ? { mode: app.prefs.defaultMode, model: app.prefs.defaultModel, effort: app.prefs.defaultEffort } : null });
       if (firstProject) void get().refreshBranch(firstProject);
@@ -338,11 +371,103 @@ export const useStore = create<UiState>((set, get) => {
     },
 
     async refreshBranch(projectPath) {
-      const branch = await api.gitBranch(projectPath);
-      set(s => ({ branches: { ...s.branches, [projectPath]: branch } }));
+      // 顺便监视这个项目的文件变化（主进程同时只监视一个，换项目时自动换）
+      void api.gitWatch(projectPath).catch(() => {});
+      const [branch, st] = await Promise.all([api.gitBranch(projectPath), api.gitStatus(projectPath).catch(() => null)]);
+      set(s => ({ branches: { ...s.branches, [projectPath]: branch }, git: st ? { ...s.git, [projectPath]: st } : s.git }));
+    },
+
+    onGit(ev) {
+      const s = get();
+      const cwd = s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject;
+      if (ev.kind === 'dirty') {
+        if (cwd) void get().refreshBranch(cwd);
+        set(st => ({ gitTick: st.gitTick + 1 }));
+      } else if (ev.kind === 'turn' && ev.convId === s.activeId) {
+        set(st => ({ gitTick: st.gitTick + 1 }));
+      }
+    },
+
+    toggleReview(open) {
+      set(s => ({ reviewOpen: open ?? !s.reviewOpen }));
+    },
+
+    setReviewScope(scope) {
+      set({ reviewScope: scope });
+    },
+
+    async gitAction(kind, cwd, paths, scope) {
+      const convId = get().activeId;
+      try {
+        if (kind === 'stage') await api.gitStage(cwd, paths);
+        else if (kind === 'unstage') await api.gitUnstage(cwd, paths);
+        else await api.gitRevert(cwd, scope ?? 'unstaged', paths, convId);
+        return true;
+      } catch (e) {
+        get().toast(`${kind === 'stage' ? '暂存' : kind === 'unstage' ? '取消暂存' : '撤销'}失败：${errText(e)}`);
+        return false;
+      } finally {
+        await get().refreshBranch(cwd);
+        set(s => ({ gitTick: s.gitTick + 1 }));
+      }
+    },
+
+    async gitInit(cwd) {
+      try {
+        await api.gitInit(cwd);
+        get().toast('已初始化 Git 仓库');
+      } catch (e) {
+        get().toast(`初始化失败：${errText(e)}`);
+      }
+      await get().refreshBranch(cwd);
+      set(s => ({ gitTick: s.gitTick + 1 }));
+    },
+
+    notify(tone, text, detail, link) {
+      const id = get().activeId;
+      if (id) patchConv(id, c => ({ timeline: addNotice(c.timeline, tone, text, detail, link) }));
+    },
+
+    async commit(cwd, req) {
+      const changes = (get().git[cwd]?.files.length ?? 0) > 0;
+      set({
+        gitBusy: changes && !req.message.trim() ? 'Claude 正在写提交说明…'
+          : req.kind === 'pr' ? '正在开 PR…' : req.kind === 'push' ? (changes ? '正在提交并推送…' : '正在推送…') : '正在提交…'
+      });
+      let r: CommitResult;
+      try {
+        r = await api.gitCommit(cwd, req);
+      } catch (e) {
+        r = { branch: null, error: { step: 'commit', message: errText(e) } };
+      }
+      set({ gitBusy: null });
+      const done = r.prUrl ? '已开 PR' : r.pushed ? (r.commit ? '已提交并推送' : '已推送') : r.commit ? '已提交' : null;
+      if (done) {
+        const text = `${done}${r.commit ? `：${r.commit.subject}` : r.pushed ? `到 ${r.pushed}` : ''}`;
+        const detail = [
+          r.commit && `${r.commit.hash} · ${r.commit.files} 个文件 · 分支 ${r.branch}${r.commit.generated ? ' · 提交说明是 Claude 写的' : ''}`,
+          r.commit && r.pushed && `推送到 ${r.pushed}`,
+          r.prUrl
+        ].filter(Boolean).join('\n');
+        get().notify('ok', text, detail || undefined, r.prUrl ? { label: '在浏览器里打开 PR', url: r.prUrl } : undefined);
+        get().toast(text);
+      }
+      if (r.error) {
+        get().notify('error', `${STEP_LABEL[r.error.step]}失败`, r.error.message);
+        get().toast(`${STEP_LABEL[r.error.step]}失败：${r.error.message.split('\n')[0]}`);
+      }
+      if (r.commit) set(s => ({ commitToken: s.commitToken + 1 }));
+      await get().refreshBranch(cwd);
+      set(s => ({ gitTick: s.gitTick + 1 }));
+      return r;
     }
   };
 });
+
+/** 当前对话（或草稿）所在的目录（C3 以后会是对话自己的 worktree） */
+export function useActiveCwd(): string | null {
+  return useStore(s => (s.activeId ? s.convs[s.activeId]?.meta.projectPath : s.activeProject) ?? null);
+}
 
 /** 当前对话（或草稿）用的模式、模型 */
 export function useCurrentSettings(): Draft | null {

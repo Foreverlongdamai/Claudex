@@ -313,9 +313,13 @@ function ItemView({ item, convId, projectPath }: { item: Item; convId: string; p
       return <ApprovalView convId={convId} item={item} projectPath={projectPath} />;
     case 'notice':
       return (
-        <div className={`notice ${item.tone}`}>
-          <Icon name={item.tone === 'blocked' ? 'ban' : item.tone === 'error' ? 'alert' : 'info'} size={14} />
-          <div><div>{item.text}</div>{item.detail && <code className="notice-detail">{item.detail}</code>}</div>
+        <div className={`notice ${item.tone}`} data-testid={`notice-${item.tone}`}>
+          <Icon name={item.tone === 'blocked' ? 'ban' : item.tone === 'error' ? 'alert' : item.tone === 'ok' ? 'check' : 'info'} size={14} />
+          <div>
+            <div>{item.text}</div>
+            {item.detail && <code className="notice-detail">{item.detail}</code>}
+            {item.link && <button className="link sm" onClick={() => void window.claudex.openExternal(item.link!.url)}>{item.link.label}</button>}
+          </div>
         </div>
       );
     case 'turn-end':

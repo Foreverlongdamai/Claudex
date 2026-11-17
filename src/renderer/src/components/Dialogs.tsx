@@ -158,6 +158,43 @@ function SettingsDialog() {
   );
 }
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** 开 PR 时在默认分支上：先起一个新分支名 */
+function PrBranchDialog({ cwd, message }: { cwd: string; message: string }) {
+  const { closeDialog, commit } = useStore.getState();
+  const branch = useStore(s => s.git[cwd]?.branch ?? s.git[cwd]?.defaultBranch ?? 'main');
+  const [name, setName] = useState(() => {
+    const d = new Date();
+    return `claudex/${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  });
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    const problem = await window.claudex.gitCheckBranch(cwd, name.trim()).catch(e => String(e));
+    if (problem) { setErr(problem); setBusy(false); return; }
+    closeDialog();
+    await commit(cwd, { message, kind: 'pr', newBranch: name.trim() });
+  };
+  return (
+    <Modal onClose={closeDialog}>
+      <h2><Icon name="branch" />开 PR 要先切到新分支</h2>
+      <p>现在在默认分支 <code>{branch}</code> 上。Claudex 会切到下面这个新分支，把改动提交到新分支并推送，再开一个合并到 <code>{branch}</code> 的 PR。</p>
+      <div className="inline pr-branch">
+        <input autoFocus value={name} data-testid="pr-branch-input" onChange={e => { setName(e.target.value); setErr(null); }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && !busy) void go(); }} />
+      </div>
+      {err && <p className="field-err">{err}</p>}
+      <div className="mfoot">
+        <span className="note">PR 的标题和说明用提交说明（gh pr create --fill）</span>
+        <button className="btn" onClick={closeDialog}>取消</button>
+        <button className="btn primary" data-testid="pr-branch-confirm" disabled={busy || !name.trim()} onClick={() => void go()}>切到新分支并开 PR</button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Dialogs() {
   const d = useStore(s => s.dialog);
   if (!d) return null;
@@ -166,5 +203,6 @@ export function Dialogs() {
     case 'mcp': return <McpDialog projectPath={d.projectPath} servers={d.servers} />;
     case 'trust': return <TrustDialog />;
     case 'settings': return <SettingsDialog />;
+    case 'pr-branch': return <PrBranchDialog cwd={d.cwd} message={d.message} />;
   }
 }

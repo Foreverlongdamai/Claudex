@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Composer } from './components/Composer';
 import { Dialogs } from './components/Dialogs';
+import { ReviewPanel } from './components/ReviewPanel';
 import { Sidebar } from './components/Sidebar';
 import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
@@ -92,6 +93,7 @@ export function App() {
       <Sidebar />
       <div className="mainwrap">
         <TopBar />
+        <div className="content">
         <main className="chat" {...(hasProjects ? dropHandlers : {})}>
           {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}
           {dropTarget && (
@@ -104,6 +106,8 @@ export function App() {
             </div>
           )}
         </main>
+        {hasProjects && <ReviewPanel />}
+        </div>
       </div>
       <Dialogs />
       <div className="toasts">{toasts.map(t => <div key={t.id} className="toast">{t.text}</div>)}</div>

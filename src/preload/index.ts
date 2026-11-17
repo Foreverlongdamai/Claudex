@@ -1,7 +1,7 @@
 // 把主进程的能力以 window.claudex 的形式安全地暴露给界面（contextIsolation + sandbox）。
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { API_METHODS, EVENT_CHANNEL, SEND_METHODS, TERM_CHANNEL, channel } from '../shared/ipc';
-import type { ClaudexApi, ConvEvent, TermEvent } from '../shared/types';
+import { API_METHODS, EVENT_CHANNEL, GIT_CHANNEL, SEND_METHODS, TERM_CHANNEL, channel } from '../shared/ipc';
+import type { ClaudexApi, ConvEvent, GitEvent, TermEvent } from '../shared/types';
 
 const invokers = Object.fromEntries(API_METHODS.map(m => [m, (...args: unknown[]) => ipcRenderer.invoke(channel(m), ...args)]));
 const senders = Object.fromEntries(SEND_METHODS.map(m => [m, (...args: unknown[]) => ipcRenderer.send(channel(m), ...args)]));
@@ -17,6 +17,7 @@ const api = {
   ...senders,
   onEvent: (cb: (ev: ConvEvent) => void) => listen(EVENT_CHANNEL, cb),
   onTerm: (cb: (ev: TermEvent) => void) => listen(TERM_CHANNEL, cb),
+  onGit: (cb: (ev: GitEvent) => void) => listen(GIT_CHANNEL, cb),
   pathForFile: (file: File) => {
     try {
       return webUtils.getPathForFile(file);
