@@ -7,12 +7,12 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import type { McpServerStatus } from '@anthropic-ai/claude-agent-sdk';
 import { checkSkill, parseFrontmatter, skillTemplate, SKILL_NAME } from '../shared/skillFile.ts';
 import { applyForm, checkForm, toForm, type SettingsForm, type SettingsScope } from '../shared/claudeSettings.ts';
 import type { McpServerInput, McpServerView, SettingsView, SkillDoc, SkillEntry } from '../shared/manage';
 import { samePath } from './store';
+import { claudeExe } from './environment';
 
 export const userSkillsDir = () => process.env.CLAUDEX_USER_SKILLS_DIR || path.join(os.homedir(), '.claude', 'skills');
 export const userSettingsFile = () => process.env.CLAUDEX_USER_SETTINGS_FILE || path.join(os.homedir(), '.claude', 'settings.json');
@@ -116,15 +116,6 @@ export async function deleteSkill(file: string, projects: string[], trash: (p: s
 }
 
 // ---------------- MCP 服务器 ----------------
-
-/** SDK 自带的 Claude Code 程序（和对话用的是同一个） */
-export function claudeExe(): string {
-  const require = createRequire(import.meta.url);
-  const pkg = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`);
-  const exe = path.join(path.dirname(pkg), process.platform === 'win32' ? 'claude.exe' : 'claude');
-  // 打包后在 app.asar.unpacked 里
-  return exe.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
-}
 
 function runClaude(args: string[], cwd: string, env: Record<string, string | undefined>): Promise<string> {
   return new Promise((resolve, reject) => {

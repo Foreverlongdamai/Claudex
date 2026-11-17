@@ -6,11 +6,12 @@ import type { CommandInfo, ConvEvent, FileAttachment, ImageAttachment, ModelOpti
 import { convCwd } from '../../shared/conv';
 import type { Store } from '../store';
 import { ConvSession, type SessionDeps } from './session';
+import { sdkExecutable } from '../environment';
 
 /** 起一个空闲的 Claude Code 进程，只发控制请求（查模型、查命令），不花 token */
 async function withProbe<T>(cwd: string, env: Record<string, string | undefined>, fn: (q: Query) => Promise<T>): Promise<T> {
   const idle = { async *[Symbol.asyncIterator]() { await new Promise(() => {}); } };
-  const q = query({ prompt: idle as AsyncIterable<never>, options: { cwd, env, permissionMode: 'default', persistSession: false } });
+  const q = query({ prompt: idle as AsyncIterable<never>, options: { ...sdkExecutable(), cwd, env, permissionMode: 'default', persistSession: false } });
   try {
     return await fn(q);
   } finally {
@@ -153,7 +154,7 @@ export class SessionManager {
     const idle = { async *[Symbol.asyncIterator]() { await new Promise(() => {}); } };
     const q = query({
       prompt: idle as AsyncIterable<never>,
-      options: { cwd: projectPath, env: this.deps.env(), permissionMode: 'default', persistSession: false, settings: { disabledMcpjsonServers: disabled } }
+      options: { ...sdkExecutable(), cwd: projectPath, env: this.deps.env(), permissionMode: 'default', persistSession: false, settings: { disabledMcpjsonServers: disabled } }
     });
     try {
       let list = await q.mcpServerStatus();

@@ -1,0 +1,36 @@
+# Windows 安装包（M4）：npm run dist → dist/Claudex-Setup-<版本>.exe
+appId: com.claudex.desktop
+productName: Claudex
+copyright: Copyright © 2026 Claudex
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# Claude Code 程序（SDK 自带的 claude.exe）和终端用的 node-pty 不能放在 app.asar 里（要直接运行、要加载 .node 文件）
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**
+  - node_modules/node-pty/**
+# 依赖里的原生模块已经按 Electron 准备好了（开发时就在用），不重新编译（本机不一定有编译工具）
+npmRebuild: false
+# 用本地已经下载好的 Electron，不再联网下载
+electronDist: node_modules/electron/dist
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  # 没有代码签名证书：安装时 Windows 可能提示“未知发布者”
+  signAndEditExecutable: true
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Claudex
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  artifactName: Claudex-Setup-${version}.exe
+  deleteAppDataOnUninstall: false

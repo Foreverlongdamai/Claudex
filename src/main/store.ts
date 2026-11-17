@@ -32,7 +32,7 @@ function defaultPrefs(): Prefs {
     defaultEffort: effort,
     gitBashPath: null,
     maxLiveSessions: 4,
-    theme: s.theme === 'light' ? 'light' : 'dark',
+    theme: s.theme === 'light' ? 'light' : s.theme === 'dark' ? 'dark' : 'system',
     skipBypassConfirm: false,
     blacklist: DEFAULT_BLACKLIST,
     terminalShell: 'powershell',

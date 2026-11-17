@@ -1,7 +1,7 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  Automation, AutomationRun, AutomationState, AppState, CommandInfo, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  Automation, AutomationRun, AutomationState, AppState, ThemePref, CommandInfo, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { convCwd } from '@shared/conv';
@@ -31,6 +31,7 @@ export type Dialog =
   | { kind: 'automation'; automation: Automation | null }
   | { kind: 'rename'; convId: string; title: string }
   | { kind: 'manage'; tab: 'skills' | 'mcp' | 'settings' }
+  | { kind: 'shortcuts' }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -100,7 +101,9 @@ interface UiState {
   applyMode(convId: string | null, mode: ModeId, skipConfirmNextTime?: boolean): Promise<void>;
   setModel(model: string, effort: Effort): Promise<void>;
   respond(convId: string, decision: PermissionDecision, note?: string): Promise<void>;
-  setTheme(theme: 'dark' | 'light'): Promise<void>;
+  setTheme(theme: ThemePref): Promise<void>;
+  /** 现在实际是深色还是浅色（“跟随系统”时看 Windows 的设置） */
+  themeNow: 'dark' | 'light';
   setPrefs(patch: Partial<Prefs>): Promise<void>;
   refreshBranch(projectPath: string): Promise<void>;
   toggleTerminal(open?: boolean): void;
@@ -168,6 +171,14 @@ interface UiState {
 export type View = 'chat' | 'board' | 'automation' | 'search';
 
 let toastSeq = 0;
+
+/** 把深浅色用到页面上：跟随系统时看 prefers-color-scheme（主进程的 nativeTheme 控制它） */
+function applyTheme(pref: ThemePref): 'dark' | 'light' {
+  const dark = pref === 'system' ? matchMedia('(prefers-color-scheme: dark)').matches : pref === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.dataset.themePref = pref;
+  return dark ? 'dark' : 'light';
+}
 /**
  * 切换对话的顺序号：打开对话要先读历史（异步），读完时如果用户已经去了别处（新对话、别的对话），就不再切回去。
  * （端到端测试遇到过：一次慢的“打开”晚到，把用户已经切走的界面又拽回了别的对话）
@@ -223,10 +234,13 @@ export const useStore = create<UiState>((set, get) => {
     skills: {},
     automation: null,
     prefill: null,
+    themeNow: 'dark',
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
-      document.documentElement.dataset.theme = app.prefs.theme;
+      set({ themeNow: applyTheme(app.prefs.theme) });
+      // 跟随系统时，Windows 切深浅色界面跟着变
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => set({ themeNow: applyTheme(get().app?.prefs.theme ?? 'system') }));
       api.onEvent(ev => get().onEvent(ev));
       api.onGit(ev => get().onGit(ev));
       const firstProject = app.projects[0]?.path ?? null;
@@ -484,7 +498,7 @@ export const useStore = create<UiState>((set, get) => {
     },
 
     async setTheme(theme) {
-      document.documentElement.dataset.theme = theme;
+      set({ themeNow: applyTheme(theme) });
       set(s => (s.app ? { app: { ...s.app, prefs: { ...s.app.prefs, theme } } } : s));
       await api.setTheme(theme);
     },

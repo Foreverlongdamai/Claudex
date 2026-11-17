@@ -1,5 +1,6 @@
 // 提交说明留空时让 Claude 来写：起一个一次性的 Claude Code 进程（不带工具、不留会话记录），
 // 把暂存的改动和最近几条提交说明给它，按仓库原来的语言和风格写。用 Haiku，快而且便宜。
+import { sdkExecutable } from './environment';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { stagedSummary } from './git';
 
@@ -36,6 +37,7 @@ export async function writeCommitMessage(root: string, env: Record<string, strin
   const q = query({
     prompt,
     options: {
+      ...sdkExecutable(),
       cwd: root,
       env,
       model: 'haiku',

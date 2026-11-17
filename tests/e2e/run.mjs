@@ -1461,6 +1461,63 @@ await step('67 Claude Code 设置：改模型、环境变量（密钥打码）�
   await closeManage();
 });
 
+// ---------- 打磨（M4）：快捷键、跟随系统的主题、浅色下的新页面 ----------
+await step('68 快捷键（Ctrl+K、Ctrl+/、Ctrl+,、Ctrl+Shift+A/B/D、Alt+↓）和跟随系统的主题', async () => {
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await win.keyboard.press('Control+k');
+  await win.waitForSelector('[data-testid=history-view]');
+  await win.keyboard.press('Control+k');
+  await waitFor(async () => (await win.locator('[data-testid=history-view]').count()) === 0, 3000, 'Ctrl+K 再按一次回到对话');
+  await win.keyboard.press('Control+Shift+A');
+  await win.waitForSelector('[data-testid=automation-view]');
+  await win.keyboard.press('Control+Shift+B');
+  await win.waitForSelector('[data-testid=task-board]');
+  await win.keyboard.press('Control+Shift+B');
+  await waitFor(async () => (await win.locator('[data-testid=task-board]').count()) === 0, 3000, '回到对话');
+  const before = await win.locator('.review').count();
+  await win.keyboard.press('Control+Shift+D');
+  await waitFor(async () => (await win.locator('.review').count()) !== before, 3000, 'Ctrl+Shift+D 开关改动面板');
+  await win.keyboard.press('Control+Shift+D');
+  await win.keyboard.press('Alt+ArrowDown');
+  await waitFor(async () => !!(await win.locator('[data-testid=conversation-item].active').count()), 5000, 'Alt+↓ 打开左栏的对话');
+  const first = await activeConvId();
+  const demoConvs = await win.locator('.proj', { has: win.locator('.proj-head', { hasText: 'demo-project' }) }).locator(':scope > [data-testid=conversation-item]').count();
+  if (demoConvs > 1) {
+    await win.keyboard.press('Alt+ArrowDown');
+    await waitFor(async () => (await activeConvId()) !== first, 5000, 'Alt+↓ 切到下一个对话');
+  }
+  await win.keyboard.press('Control+/');
+  await win.waitForSelector('[data-testid=shortcuts-dialog]');
+  await shot('68-shortcuts');
+  await win.keyboard.press('Escape');
+  await win.keyboard.press('Control+,');
+  await win.waitForSelector('[data-testid=pref-theme]');
+  await win.locator('[data-testid=pref-theme]').selectOption('system');
+  const sys = await app.evaluate(({ nativeTheme }) => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'));
+  await waitFor(async () => (await win.evaluate(() => document.documentElement.dataset.theme)) === sys && (await win.evaluate(() => document.documentElement.dataset.themePref)) === 'system', 5000, '跟随系统');
+  if ((await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)) !== 'system') throw new Error('主进程没跟随系统');
+  // 浅色下看看新页面
+  await win.locator('[data-testid=pref-theme]').selectOption('light');
+  await waitFor(async () => (await win.evaluate(() => document.documentElement.dataset.theme)) === 'light', 5000, '浅色');
+  await win.keyboard.press('Escape');
+  await win.keyboard.press('Control+Shift+A');
+  await win.waitForSelector('[data-testid=automation-view]');
+  await shot('68-light-automation');
+  await win.keyboard.press('Control+k');
+  await win.waitForSelector('[data-testid=history-view]');
+  await shot('68-light-search');
+  await win.locator('[data-testid=mcp-button]').click();
+  await win.waitForSelector('[data-testid=mcp-pane]');
+  await win.locator('[data-testid=manage-tab-skills]').click();
+  await win.waitForSelector('[data-testid=skill-item]', { timeout: 20000 });
+  await shot('68-light-skills');
+  await win.keyboard.press('Escape');
+  await win.keyboard.press('Control+,');
+  await win.locator('[data-testid=pref-theme]').selectOption('dark');
+  await win.keyboard.press('Escape');
+  await win.keyboard.press('Control+k');
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));

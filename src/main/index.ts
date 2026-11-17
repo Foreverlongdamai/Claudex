@@ -1,5 +1,5 @@
 // Claudex 主进程：窗口、IPC、对话进程管理。
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, shell, type Tray } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,8 +172,18 @@ function disabledMcp(projectPath: string): string[] {
   return projectMcpServers(projectPath).filter(s => approvals[s.name] !== true).map(s => s.name);
 }
 
+/** 现在实际是深色还是浅色（“跟随系统”时看 Windows 的设置） */
+const effectiveTheme = (): 'dark' | 'light' => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+/** 标题栏右上角的窗口按钮跟着深浅色变 */
+function paintTitleBar(): void {
+  const t = effectiveTheme();
+  win?.setTitleBarOverlay({ ...TITLE_BAR[t], height: 52 });
+  win?.setBackgroundColor(TITLE_BAR[t].color);
+}
+
 function createWindow(): void {
-  const theme = store.state.prefs.theme;
+  nativeTheme.themeSource = store.state.prefs.theme; // 界面里的 prefers-color-scheme 也跟着它
+  const theme = effectiveTheme();
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -322,8 +332,8 @@ function registerIpc(): void {
     setPrefs: async patch => { store.setPrefs(patch); return store.state; },
     setTheme: async theme => {
       store.setPrefs({ theme });
-      win?.setTitleBarOverlay({ ...TITLE_BAR[theme], height: 52 });
-      win?.setBackgroundColor(TITLE_BAR[theme].color);
+      nativeTheme.themeSource = theme;
+      paintTitleBar();
     },
     openExternal: async url => { if (/^https?:/i.test(url)) await shell.openExternal(url); },
     listShells: async () => listShells(gitBash().path),
@@ -493,6 +503,7 @@ if (!app.requestSingleInstanceLock()) {
     history = new HistoryManager({ store, emit, log });
     registerIpc();
     createWindow();
+    nativeTheme.on('updated', paintTitleBar); // 跟随系统时，Windows 切深浅色
     tray = createTray({
       open: () => showWindow(),
       automation: () => showWindow({ kind: 'navigate', to: 'automation' }),

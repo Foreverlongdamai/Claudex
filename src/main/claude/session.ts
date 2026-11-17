@@ -5,6 +5,7 @@
 //   - 设 CLAUDE_CODE_GIT_BASH_PATH（由 sessionEnv 负责）
 //   - 没批准的项目 MCP 服务器用 disabledMcpjsonServers 拦住
 //   - 保底黑名单用 PreToolUse hook，完全访问下也生效
+import { sdkExecutable } from '../environment';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
@@ -148,6 +149,7 @@ export class ConvSession {
     const q = query({
       prompt: input,
       options: {
+        ...sdkExecutable(), // 打包后从安装目录启动 Claude Code
         ...(agent ?? {}), // 员工的对话：整个会话以这个员工的身份运行（他的角色提示词、工具、记忆）
         cwd: convCwd(meta), // 在 worktree 里的对话就在 worktree 里干活（C3）
         // 用 Claude Code 自己的默认系统提示（SDK 不传时是空的，见 spikes/c3/README.md），后面加上项目环境的说明；

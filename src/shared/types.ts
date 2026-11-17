@@ -230,6 +230,8 @@ export type TermEvent =
   | { kind: 'data'; id: string; data: string }
   | { kind: 'exit'; id: string; exitCode: number };
 
+export type ThemePref = 'dark' | 'light' | 'system';
+
 export interface Prefs {
   defaultMode: ModeId;
   defaultModel: string;
@@ -238,7 +240,8 @@ export interface Prefs {
   gitBashPath: string | null;
   /** 同时运行的对话进程上限（每个约 250 MB） */
   maxLiveSessions: number;
-  theme: 'dark' | 'light';
+  /** system：跟随 Windows 的深浅色设置（M4） */
+  theme: ThemePref;
   /** 切到完全访问时不再弹确认 */
   skipBypassConfirm: boolean;
   blacklist: BlacklistRule[];
@@ -545,7 +548,7 @@ export interface ClaudexApi {
   listFiles(projectPath: string, query: string): Promise<string[]>;
   gitBranch(projectPath: string): Promise<string | null>;
   setPrefs(patch: Partial<Prefs>): Promise<AppState>;
-  setTheme(theme: 'dark' | 'light'): Promise<void>;
+  setTheme(theme: ThemePref): Promise<void>;
   openExternal(url: string): Promise<void>;
   onEvent(cb: (ev: ConvEvent) => void): () => void;
   // ---- 内置终端（C1） ----

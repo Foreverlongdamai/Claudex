@@ -75,11 +75,13 @@ export function Sidebar() {
   const activeId = useStore(s => s.activeId);
   const activeProject = useStore(s => s.activeProject);
   const view = useStore(s => s.view);
+  const themeNow = useStore(s => s.themeNow);
   const runningTasks = useStore(s => Object.values(s.tasks).filter(t => t.projectPath === s.activeProject && (t.status === 'running' || t.status === 'waiting')).length);
   const toReview = useStore(s => (s.automation?.runs ?? []).filter(needsReview).length);
   const { startDraft, pickProject, removeProject, setTheme } = useStore.getState();
   if (!app) return null;
-  const theme = app.prefs.theme;
+  // 左下角的按钮在深浅色之间切（跟随系统时，切到和现在相反的那个）
+  const theme = themeNow;
 
   return (
     <aside className="sidebar">

@@ -1,5 +1,6 @@
 // 运行环境探测：Git Bash 在哪、有没有走中转、给 Claude Code 子进程的环境变量。
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +51,28 @@ export function relayHost(): string | null {
     return /(^|\.)anthropic\.com$/i.test(host) ? null : host;
   } catch {
     return url;
+  }
+}
+
+/** SDK 自带的 Claude Code 程序（对话、claude mcp 命令用的都是它） */
+export function claudeExe(): string {
+  const require = createRequire(import.meta.url);
+  const pkg = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`);
+  const exe = path.join(path.dirname(pkg), process.platform === 'win32' ? 'claude.exe' : 'claude');
+  // 打包后：程序在 app.asar.unpacked 里（asar 里的程序不能直接运行）
+  return exe.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+}
+
+/**
+ * 打包后 SDK 自己找到的程序路径在 app.asar 里，启动不了；这时告诉它 unpacked 里的位置。开发时不用管。
+ * 用法：query({ options: { ...sdkExecutable(), ... } })
+ */
+export function sdkExecutable(): { pathToClaudeCodeExecutable?: string } {
+  try {
+    const exe = claudeExe();
+    return exe.includes('app.asar.unpacked') ? { pathToClaudeCodeExecutable: exe } : {};
+  } catch {
+    return {};
   }
 }
 

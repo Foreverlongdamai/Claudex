@@ -82,6 +82,37 @@ export function App() {
         s.requestMode(MODE_ORDER[(MODE_ORDER.indexOf(cur) + 1) % MODE_ORDER.length]);
         return;
       }
+      const key = e.key.toLowerCase();
+      const hasProject = !!s.app?.projects.length;
+      if (e.ctrlKey && !e.shiftKey && (e.key === ',' || e.code === 'Comma')) {
+        e.preventDefault();
+        useStore.setState({ dialog: { kind: 'settings' } });
+        return;
+      }
+      if (e.ctrlKey && !e.shiftKey && (e.key === '/' || e.code === 'Slash')) {
+        e.preventDefault();
+        useStore.setState({ dialog: { kind: 'shortcuts' } });
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && hasProject && (key === 'a' || key === 'b' || key === 'd')) {
+        e.preventDefault();
+        if (key === 'a') s.setView(s.view === 'automation' ? 'chat' : 'automation');
+        else if (key === 'b') s.setView(s.view === 'board' ? 'chat' : 'board');
+        else { if (s.view !== 'chat') s.setView('chat'); s.toggleReview(); }
+        return;
+      }
+      // Alt+↑ / Alt+↓：左栏里当前项目的上一个 / 下一个主对话（和左栏一样的顺序：置顶的在前，然后按时间）
+      if (e.altKey && !e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        const p = s.activeProject;
+        const list = (s.app?.conversations ?? []).filter(c => c.projectPath === p && !c.employee && !c.automation)
+          .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt);
+        if (!list.length) return;
+        e.preventDefault();
+        const i = list.findIndex(c => c.id === s.activeId);
+        const next = e.key === 'ArrowUp' ? (i <= 0 ? list.length - 1 : i - 1) : (i < 0 || i >= list.length - 1 ? 0 : i + 1);
+        void s.openConversation(list[next].id);
+        return;
+      }
       if (e.ctrlKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
         if (s.app?.projects.length) s.setView(s.view === 'search' ? 'chat' : 'search');

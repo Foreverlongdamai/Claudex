@@ -4,11 +4,13 @@
 
 Claudex 自己不实现智能体：实际干活的是本机的 Claude Code（通过官方的 Claude Agent SDK 调起），所以你的 Skills、MCP、CLAUDE.md、`~/.claude/settings.json` 里的中转 API 配置都会照常生效。
 
-> 当前进度：M1 第一步（能用的聊天）+ C1 内置终端 + C2 Git 审查和提交 + C3 worktree 并行对话 + 项目环境（conda）+ 团队（老板-员工）。方案、决定和进度见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，技术验证报告见 [docs/m0-report.md](docs/m0-report.md)。
+> 当前进度：第一版的阶段都做完了——M1 对话核心、C1 内置终端、C2 Git 审查和提交、C3 worktree 并行对话、C4 自动化、项目环境（conda）、团队（老板-员工）、M2 对话历史、M3 管理（Skills、MCP、设置）、M4 打磨（主题、快捷键、安装包）。方案、决定和进度见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，技术验证报告见 [docs/m0-report.md](docs/m0-report.md)。
 
 ## 使用
 
-**双击 `Claudex.cmd`** 就能启动。第一次会自动安装依赖，需要几分钟。
+**安装包**：`npm run dist` 生成 `dist/Claudex-Setup-<版本>.exe`，双击安装（可以选安装位置，会建桌面和开始菜单的快捷方式）。安装包里带着 Claude Code 程序，所以有两百多 MB；没有代码签名，第一次运行 Windows 可能提示“未知发布者”，点“仍要运行”。
+
+**不安装直接用**：双击 `Claudex.cmd` 就能启动。第一次会自动安装依赖，需要几分钟。
 
 或者在终端里：
 
@@ -37,6 +39,7 @@ npm run dev      # 开发模式（改代码后界面自动刷新）
 - 管理：左栏“Skills”“MCP 服务器”打开管理窗口——Skills 能看、改（实时检查格式）、新建、删除、在新对话里试运行；MCP 服务器显示实际连接状态和工具数，能添加、修改、删除（用 Claude Code 自己的 `claude mcp` 命令）；“Claude Code 设置”改三个级别的 settings.json（模型、环境变量、权限规则、hooks），只改动过的项，密钥默认打码
 - 自动化：左栏“自动化”里设定时任务（每天 / 工作日 / 每周 / 每小时），每次运行开一个新对话，默认在新的 worktree 里；跑完、暂停等审批的结果进审查队列；关掉窗口缩到托盘在后台运行，App 没开时错过的下次打开补跑一次
 - 项目环境（conda）：输入框下面给项目指定一个 conda 环境，项目里所有对话和终端都用它；没指定时 Claude 需要 Python 会先找现有的环境、没有就新建，再登记成项目环境
+- 深浅色主题（可以跟随系统）；快捷键：Ctrl+N 新对话、Ctrl+K 搜索、Ctrl+` 终端、Ctrl+Shift+D 改动面板、Ctrl+Shift+B 任务看板、Ctrl+Shift+A 自动化、Ctrl+, 设置、Alt+↑/↓ 切换对话，Ctrl+/ 看全部
 - 安全：新对话默认“询问”模式；保底黑名单（删除盘根或用户目录、强制推送、格式化磁盘、删除 ~/.claude）任何模式下都拦截；项目自带的 MCP 服务器第一次使用前先问你；添加带 hooks 的项目前先提醒
 
 ## 开发
@@ -45,6 +48,8 @@ npm run dev      # 开发模式（改代码后界面自动刷新）
 npm run typecheck   # 类型检查
 npm run test:unit   # 单元测试：保底黑名单、Skills 配置模式规则、时间线、附件、git diff 解析、git 操作、worktree、项目环境、员工档案、读附件命令、自动化的运行时刻、对话历史、Skills 和设置的管理
 npm run test:e2e    # 端到端测试：真正启动 App 并调用 Claude（会花少量 token），截图在 tests/e2e/.out/
+npm run dist        # 打 Windows 安装包：dist/Claudex-Setup-<版本>.exe（配置在 electron-builder.yml，图标由 scripts/make-icon.mjs 画）
+npm run test:installer   # 安装包测试：静默安装、启动、发一条消息、开终端、托盘，再静默卸载
 node tests/e2e/run.mjs 01,02,17,18,19,20,21,22,23,24,25   # 只跑指定的步骤（这里是终端相关的几步，其中只有第 22 步调用 Claude）
 ```
 
@@ -52,16 +57,18 @@ node tests/e2e/run.mjs 01,02,17,18,19,20,21,22,23,24,25   # 只跑指定的步�
 
 | 目录 | 内容 |
 |---|---|
-| `src/main/` | 主进程：窗口、IPC、对话进程管理（`claude/`）、保底黑名单和模式规则（`guard/`）、内置终端（`terminal.ts`）、Git 操作（`git.ts`）、“上一轮”快照和文件监视（`review.ts`）、worktree（`worktree.ts`）、项目的 conda 环境（`conda.ts`）、团队（`team.ts`） |
+| `src/main/` | 主进程：窗口、IPC、对话进程管理（`claude/`）、保底黑名单和模式规则（`guard/`）、内置终端（`terminal.ts`）、Git 操作（`git.ts`）、“上一轮”快照和文件监视（`review.ts`）、worktree（`worktree.ts`）、项目的 conda 环境（`conda.ts`）、团队（`team.ts`）、自动化（`automation.ts`）、托盘和图标（`tray.ts`、`iconArt.ts`）、对话历史（`history.ts`）、Skills / MCP / 设置的管理（`manage.ts`） |
 | `src/preload/` | 把主进程能力安全地暴露给界面（`window.claudex`） |
 | `src/renderer/` | 界面（React）：状态在 `store.ts`，消息流整理在 `timeline.ts` |
 | `src/shared/` | 三方共用的类型和 IPC 通道 |
 | `tests/` | 单元测试和端到端测试 |
 | `prototype/` | 界面原型（静态网页） |
+| `build/` | 安装包用的图标（`scripts/make-icon.mjs` 生成） |
+| `scripts/` | 下载 Electron、生成图标 |
 | `spikes/m0/` | M0 技术验证脚本 |
 | `spikes/c1/` | C1 内置终端排查问题时的验证脚本（结论见 PROJECT_STATUS.md 的 C1 进度） |
 | `spikes/files/` | 读取本地文件（文档、录音）的验证脚本 |
 | `spikes/api/` | 换 API 的可行性验证（2026-11-17 决定不做，留作记录） |
 | `spikes/c3/` | C3 的验证：跨 worktree 续接会话、SDK 默认系统提示 |
 
-Electron 本体从国内镜像下载（本机直连 GitHub 不通），见 `scripts/install-electron.mjs`。
+Electron 本体从国内镜像下载（本机直连 GitHub 不通），见 `scripts/install-electron.mjs`。注意：`npm install 某个包` 有时会把 Electron 本体删掉（npm 11 不跑依赖的安装脚本），之后运行 `npm install` 或 `node scripts/install-electron.mjs` 重新下载。

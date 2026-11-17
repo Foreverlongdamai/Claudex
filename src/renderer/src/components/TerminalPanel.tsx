@@ -46,7 +46,7 @@ export function TerminalPanel() {
   const key = useStore(s => s.activeId ?? (s.activeProject ? `project:${s.activeProject}` : null));
   const cwd = useActiveCwd(); // worktree 对话的终端就在它的 worktree 里
   const shellPref = useStore(s => s.app?.prefs.terminalShell ?? 'powershell');
-  const theme = useStore(s => s.app?.prefs.theme ?? 'dark');
+  const theme = useStore(s => s.themeNow);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
