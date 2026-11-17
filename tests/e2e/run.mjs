@@ -36,6 +36,10 @@ git('remote', 'add', 'origin', remoteRepo);
 git('push', '-q', '-u', 'origin', 'main');
 // 开 PR 用假的 gh（记下参数，返回假的 PR 地址）；撤销的新文件移到这里，不进系统回收站
 const ghLog = path.join(work, 'gh.log');
+fs.writeFileSync(path.join(work, 'user-settings.json'), JSON.stringify({
+  env: { E2E_TOKEN: 'sk-e2e-secret-123456' }, permissions: { additionalDirectories: ['D:\\e2e-extra'] }, someOtherKey: { keep: true },
+  hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo done' }] }] }
+}, null, 2));
 const trashDir = path.join(work, 'trash');
 
 // ---------- 小工具 ----------
@@ -59,7 +63,9 @@ async function launch() {
       // 自动化：每 2 秒检查一次到点没有；不弹系统通知
       CLAUDEX_AUTOMATION_TICK_MS: '2000', CLAUDEX_NO_NOTIFY: '1',
       // 导出对话：直接存到这里，不弹保存框
-      CLAUDEX_EXPORT_DIR: path.join(work, 'exports')
+      CLAUDEX_EXPORT_DIR: path.join(work, 'exports'),
+      // 管理（M3）：用户级的 Skills 和 Claude Code 设置换成测试用的位置，不碰真实的配置
+      CLAUDEX_USER_SKILLS_DIR: path.join(work, 'user-skills'), CLAUDEX_USER_SETTINGS_FILE: path.join(work, 'user-settings.json')
     }
   });
   win = await app.firstWindow();
@@ -1327,6 +1333,132 @@ await step('64 导出成 Markdown 和 HTML', async () => {
   const html = fs.readFileSync(path.join(exportDir, '暗号会话.html'), 'utf8');
   if (!md.startsWith('# 暗号会话') || !md.includes('PINEAPPLE-42') || !md.includes('## Claude')) throw new Error('Markdown 不对：' + md.slice(0, 300));
   if (!html.includes('<title>暗号会话</title>') || !html.includes('PINEAPPLE-42')) throw new Error('HTML 不对');
+});
+
+// ---------- 管理（M3）：Skills、MCP 服务器、Claude Code 设置 ----------
+const userSkills = path.join(work, 'user-skills');
+const userSettings = path.join(work, 'user-settings.json');
+const closeManage = async () => { await win.keyboard.press('Escape'); await waitFor(async () => (await win.locator('[data-testid=manage-dialog]').count()) === 0, 3000, '关掉管理窗口'); };
+
+await step('65 Skills：新建项目级 Skill，格式不对不能保存，改好保存，在新对话里试运行', async () => {
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await win.locator('[data-testid=skills-button]').click();
+  await win.waitForSelector('[data-testid=skills-pane]');
+  await waitFor(async () => (await win.locator('[data-testid=skill-item]').count()) > 0 || (await win.locator('[data-testid=skill-new]').count()) > 0, 20000, 'Skills 列表');
+  const plugin = win.locator('[data-testid=skill-item][data-source=plugin]').first();
+  if (await plugin.count()) {
+    await plugin.click();
+    await waitFor(async () => (await win.locator('[data-testid=skill-editor]').getAttribute('readonly')) !== null, 5000, '插件自带的只读');
+    if (await win.locator('[data-testid=skill-save]').count()) throw new Error('插件自带的 Skill 不该能保存');
+  }
+  await win.locator('[data-testid=skill-new]').click();
+  await win.locator('[data-testid=skill-new-name]').fill('hello-skill');
+  await win.locator('[data-testid=skill-new-desc]').fill('E2E 测试用：回复一句固定的话');
+  await win.locator('[data-testid=skill-create]').click();
+  const file = path.join(project, '.claude', 'skills', 'hello-skill', 'SKILL.md');
+  await waitFor(() => fs.existsSync(file), 5000, '项目里建好 SKILL.md');
+  await win.waitForSelector('[data-testid=skill-ok]');
+  // 去掉 name：提示问题，不能保存
+  await win.locator('[data-testid=skill-editor]').fill('---\ndescription: 没有名字\n---\n\n正文');
+  await win.waitForSelector('[data-testid=skill-problems]');
+  if (!(await win.locator('[data-testid=skill-save]').isDisabled())) throw new Error('格式不对时不该能保存');
+  await win.locator('[data-testid=skill-editor]').fill('---\nname: hello-skill\ndescription: When the user invokes this skill, reply with a fixed phrase.\n---\n\nReply with exactly: SKILL-RAN-OK and nothing else.\n');
+  await win.waitForSelector('[data-testid=skill-ok]');
+  await win.locator('[data-testid=skill-save]').click();
+  await waitFor(() => fs.readFileSync(file, 'utf8').includes('SKILL-RAN-OK'), 5000, '保存到文件');
+  await shot('65-skills');
+  // 用户级的也能建、能删（删除是移到回收站）
+  await win.locator('[data-testid=skill-new]').click();
+  await win.locator('.screate select').selectOption('user');
+  await win.locator('[data-testid=skill-new-name]').fill('temp-user-skill');
+  await win.locator('[data-testid=skill-create]').click();
+  await waitFor(() => fs.existsSync(path.join(userSkills, 'temp-user-skill', 'SKILL.md')), 5000, '用户级的 Skill 建在用户目录');
+  win.once('dialog', d => void d.accept());
+  await win.locator('[data-testid=skill-delete]').click();
+  await waitFor(() => !fs.existsSync(path.join(userSkills, 'temp-user-skill')), 5000, '删掉（移到回收站）');
+  // 在新对话里试运行：输入框填好 /hello-skill
+  await win.locator('[data-testid=skill-item][data-skill=hello-skill]').click();
+  await win.locator('[data-testid=skill-try]').click();
+  await waitFor(async () => (await input().inputValue()) === '/hello-skill ', 5000, '输入框里填好 /hello-skill');
+  await input().press('Enter');
+  await runApproving();
+  if (!(await lastAssistant()).includes('SKILL-RAN-OK')) throw new Error('试运行没按 Skill 做：' + await lastAssistant());
+});
+
+await step('66 MCP 服务器：添加项目级的（显示已连接和工具），对话里能用，改名，删除；没批准的标出来', async () => {
+  await win.locator('[data-testid=mcp-button]').click();
+  await win.waitForSelector('[data-testid=mcp-pane]');
+  await win.waitForSelector('[data-testid=mcp-row][data-server=e2e-untrusted][data-status=unapproved]', { timeout: 60000 });
+  await win.locator('[data-testid=mcp-add]').click();
+  await win.locator('[data-testid=mcp-name]').fill('fake-echo');
+  await win.locator('[data-testid=mcp-command]').fill('node');
+  await win.locator('[data-testid=mcp-args]').fill(path.join(root, 'tests', 'e2e', 'fake-mcp.mjs'));
+  await win.locator('[data-testid=mcp-save]').click();
+  const row = win.locator('[data-testid=mcp-row][data-server=fake-echo]');
+  await row.waitFor({ timeout: 90000 });
+  await waitFor(async () => (await row.getAttribute('data-status')) === 'connected', 60000, 'fake-echo 已连接');
+  if (!(await row.innerText()).includes('1')) throw new Error('工具数不对：' + await row.innerText());
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.mcp.json'), 'utf8'));
+  if (!mcpJson.mcpServers['fake-echo'] || !mcpJson.mcpServers['e2e-untrusted']) throw new Error('.mcp.json 不对：' + JSON.stringify(mcpJson));
+  await shot('66-mcp');
+  // 改名
+  await row.locator('[data-testid=mcp-edit]').click();
+  await win.locator('[data-testid=mcp-name]').fill('fake-echo2');
+  await win.locator('[data-testid=mcp-save]').click();
+  await win.locator('[data-testid=mcp-row][data-server=fake-echo2][data-status=connected]').waitFor({ timeout: 90000 });
+  if (await win.locator('[data-testid=mcp-row][data-server=fake-echo]').count()) throw new Error('改名后旧的还在');
+  await closeManage();
+  // 对话里能用
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await sendMsg('Use the echo tool from the fake-echo2 MCP server with text "ping-123", then reply with exactly the tool result.');
+  await runApproving();
+  if (!(await lastAssistant()).includes('echo: ping-123')) throw new Error('对话里没用上 MCP 工具：' + await lastAssistant());
+  // 删除
+  await win.locator('[data-testid=mcp-button]').click();
+  const row2 = win.locator('[data-testid=mcp-row][data-server=fake-echo2]');
+  await row2.waitFor({ timeout: 90000 });
+  win.once('dialog', d => void d.accept());
+  await row2.locator('[data-testid=mcp-remove]').click();
+  await waitFor(async () => !JSON.parse(fs.readFileSync(path.join(project, '.mcp.json'), 'utf8')).mcpServers['fake-echo2'], 30000, '.mcp.json 里删掉了');
+  await waitFor(async () => (await win.locator('[data-testid=mcp-row][data-server=fake-echo2]').count()) === 0, 90000, '列表里没了');
+  await closeManage();
+});
+
+await step('67 Claude Code 设置：改模型、环境变量（密钥打码）、权限规则；其他字段原样保留并备份；hooks 写错了不让存；项目级新建', async () => {
+  await win.locator('.side-foot .nav-item', { hasText: '设置' }).click();
+  await win.locator('[data-testid=open-claude-settings]').click();
+  await win.waitForSelector('[data-testid=settings-pane]');
+  await waitFor(async () => (await win.locator('[data-testid=set-path]').innerText()).includes('user-settings.json'), 5000, '用户级用的是测试用的文件');
+  // 密钥打码
+  const tokenRow = win.locator('[data-testid=set-env-row]', { has: win.locator('input[value=E2E_TOKEN]') });
+  if ((await tokenRow.locator('input').nth(1).inputValue()) === 'sk-e2e-secret-123456') throw new Error('密钥没打码');
+  await win.locator('[data-testid=set-model]').fill('sonnet');
+  await win.locator('[data-testid=set-env-add]').click();
+  const last = win.locator('[data-testid=set-env-row]').last();
+  await last.locator('input').nth(0).fill('E2E_VAR');
+  await last.locator('input').nth(1).fill('hello');
+  await win.locator('[data-testid=set-allow]').fill('Bash(npm test)\nRead(./docs/**)');
+  await win.locator('[data-testid=set-hooks]').fill('{bad json');
+  await win.locator('[data-testid=set-save]').click();
+  await waitFor(async () => (await win.locator('[data-testid=set-error]').innerText()).includes('JSON'), 5000, 'hooks 写错了提示');
+  await win.locator('[data-testid=set-hooks]').fill('');
+  await shot('67-settings');
+  await win.locator('[data-testid=set-save]').click();
+  await waitFor(() => JSON.parse(fs.readFileSync(userSettings, 'utf8')).model === 'sonnet', 5000, '保存到文件');
+  const saved = JSON.parse(fs.readFileSync(userSettings, 'utf8'));
+  if (saved.env.E2E_VAR !== 'hello' || saved.env.E2E_TOKEN !== 'sk-e2e-secret-123456') throw new Error('环境变量不对：' + JSON.stringify(saved.env));
+  if (JSON.stringify(saved.permissions.allow) !== '["Bash(npm test)","Read(./docs/**)"]' || saved.permissions.additionalDirectories?.[0] !== 'D:\\e2e-extra') throw new Error('权限不对：' + JSON.stringify(saved.permissions));
+  if (saved.someOtherKey?.keep !== true || 'hooks' in saved) throw new Error('别的字段没保留，或者 hooks 没删：' + JSON.stringify(saved));
+  if (!fs.existsSync(userSettings + '.claudex-bak')) throw new Error('没有备份');
+  // 项目级：还没有文件，保存时新建
+  await win.locator('[data-testid=set-scope-project]').click();
+  await waitFor(async () => (await win.locator('[data-testid=set-path]').innerText()).includes('还没有这个文件'), 5000, '项目级还没有文件');
+  await win.locator('[data-testid=set-allow]').fill('Bash(echo hi)');
+  await win.locator('[data-testid=set-save]').click();
+  const projFile = path.join(project, '.claude', 'settings.json');
+  await waitFor(() => fs.existsSync(projFile), 5000, '项目级的 settings.json 新建了');
+  if (JSON.stringify(JSON.parse(fs.readFileSync(projFile, 'utf8'))) !== '{"permissions":{"allow":["Bash(echo hi)"]}}') throw new Error('项目级的内容不对：' + fs.readFileSync(projFile, 'utf8'));
+  await closeManage();
 });
 
 await app.close();

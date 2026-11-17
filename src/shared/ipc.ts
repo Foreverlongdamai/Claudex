@@ -15,7 +15,9 @@ export const API_METHODS = [
   'worktreeCheck', 'handoff', 'condaInfo', 'setProjectEnv',
   'listEmployees', 'saveEmployee', 'deleteEmployee', 'listTasks', 'newEmployeeConversation', 'listSkills', 'stopTask',
   'listAutomations', 'saveAutomation', 'deleteAutomation', 'setAutomationEnabled', 'runAutomation', 'markRunRead', 'deleteRun',
-  'searchHistory', 'openSession', 'forkConversation', 'renameConversation', 'pinConversation', 'exportConversation'
+  'searchHistory', 'openSession', 'forkConversation', 'renameConversation', 'pinConversation', 'exportConversation',
+  'listSkillFiles', 'readSkillFile', 'saveSkillFile', 'createSkill', 'deleteSkill', 'listMcpServers', 'saveMcpServer', 'removeMcpServer',
+  'readClaudeSettings', 'saveClaudeSettings'
 ] as const satisfies ReadonlyArray<InvokeMethod>;
 
 export type ApiMethod = (typeof API_METHODS)[number];

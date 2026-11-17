@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { Icon } from './Icon';
 import { EmployeeEditor } from './Team';
 import { AutomationForm } from './Automation';
+import { ManageDialog } from './Manage';
 
 const EFFORT_LABEL: Record<Effort, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' };
 
@@ -155,6 +156,8 @@ function SettingsDialog() {
           <button className={`mini-sw${prefs.closeToTray ? ' on' : ''}`} data-testid="pref-tray" onClick={() => void setPrefs({ closeToTray: !prefs.closeToTray })} /></div></div>
         <div className="row"><div className="lbl">主题</div><div className="val">
           <select value={prefs.theme} onChange={e => void setTheme(e.target.value as 'dark' | 'light')}><option value="dark">深色</option><option value="light">浅色</option></select></div></div>
+        <div className="row"><div className="lbl">Claude Code 的设置<small>settings.json：环境变量、权限规则、hooks、默认模型</small></div><div className="val">
+          <button className="btn sm" data-testid="open-claude-settings" onClick={() => useStore.setState({ dialog: { kind: 'manage', tab: 'settings' } })}>打开 Claude Code 设置…</button></div></div>
         <div className="row"><div className="lbl">API</div><div className="val">{env?.relayHost ? `走中转：${env.relayHost}（令牌在 Claude Code 的设置里，Claudex 不读取也不保存）` : '直连 Anthropic API'}</div></div>
         <div className="row"><div className="lbl">版本</div><div className="val">Claudex {env?.appVersion}</div></div>
       </div>
@@ -258,5 +261,6 @@ export function Dialogs() {
     case 'employee': return <Modal wide onClose={useStore.getState().closeDialog}><EmployeeEditor projectPath={d.projectPath} profile={d.profile} /></Modal>;
     case 'automation': return <AutomationForm automation={d.automation} />;
     case 'rename': return <RenameDialog convId={d.convId} title={d.title} />;
+    case 'manage': return <ManageDialog tab={d.tab} />;
   }
 }

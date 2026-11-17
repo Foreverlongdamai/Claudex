@@ -1,6 +1,6 @@
 // 管理所有对话的进程：按需启动、限制同时运行的数量（每个约 250 MB，M0 实测）、回收闲置的。
 // 被回收的对话下次发消息时会用 resume 续接，上下文不会丢（M0 验证过）。
-import { getSessionMessages, query, type PermissionResult, type Query } from '@anthropic-ai/claude-agent-sdk';
+import { getSessionMessages, query, type McpServerStatus, type PermissionResult, type Query } from '@anthropic-ai/claude-agent-sdk';
 import os from 'node:os';
 import type { CommandInfo, ConvEvent, FileAttachment, ImageAttachment, ModelOption, OpenedConversation, SdkMessageLike } from '../../shared/types';
 import { convCwd } from '../../shared/conv';
@@ -132,6 +132,39 @@ export class SessionManager {
       .sort((a, b) => a.name.localeCompare(b.name));
     this.skills.set(projectPath, { at: Date.now(), list });
     return list;
+  }
+
+  /** Skill 改了：下次重新读（M3） */
+  forgetSkills(): void {
+    this.skills.clear();
+    this.commands.clear();
+  }
+
+  /** Claude Code 的设置改了：所有对话下一条消息起重启进程（M3） */
+  markAllStale(): void {
+    for (const s of this.sessions.values()) s.markStale();
+  }
+
+  /**
+   * 项目里 MCP 服务器的状态（M3）：起一个空闲进程，等服务器都连上（或失败）再返回。
+   * 没批准的项目服务器（disabled）不会启动。
+   */
+  async mcpStatus(projectPath: string, disabled: string[]): Promise<McpServerStatus[]> {
+    const idle = { async *[Symbol.asyncIterator]() { await new Promise(() => {}); } };
+    const q = query({
+      prompt: idle as AsyncIterable<never>,
+      options: { cwd: projectPath, env: this.deps.env(), permissionMode: 'default', persistSession: false, settings: { disabledMcpjsonServers: disabled } }
+    });
+    try {
+      let list = await q.mcpServerStatus();
+      for (let i = 0; i < 30 && list.some(s => s.status === 'pending'); i++) {
+        await new Promise(r => setTimeout(r, 500));
+        list = await q.mcpServerStatus();
+      }
+      return list;
+    } finally {
+      q.close();
+    }
   }
 
   /** 项目里能用的斜杠命令和 Skills（按项目缓存 5 分钟） */

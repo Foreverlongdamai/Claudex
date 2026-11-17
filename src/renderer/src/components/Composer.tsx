@@ -256,6 +256,13 @@ export function Composer() {
   // 真正发出去之后才清空（遇到 MCP 批准弹窗时，内容要留着）
   useEffect(() => { setText(''); setImages([]); setFiles([]); setPopup(null); }, [sentToken]);
   useEffect(() => { input.current?.focus(); }, [activeId, projectPath]);
+  // 别处要求预先填好的文字（比如“在新对话中试运行”某个 Skill）
+  const prefill = useStore(s => s.prefill);
+  useEffect(() => {
+    if (!prefill) return;
+    setText(prefill.text);
+    requestAnimationFrame(() => { const el = input.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  }, [prefill?.token]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = input.current;
     if (!el) return;

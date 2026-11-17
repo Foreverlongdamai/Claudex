@@ -30,6 +30,7 @@ export type Dialog =
   | { kind: 'employee'; projectPath: string; profile: EmployeeProfile | null }
   | { kind: 'automation'; automation: Automation | null }
   | { kind: 'rename'; convId: string; title: string }
+  | { kind: 'manage'; tab: 'skills' | 'mcp' | 'settings' }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -157,6 +158,11 @@ interface UiState {
   renameConversation(convId: string, title: string): Promise<string | null>;
   pinConversation(convId: string, pinned: boolean): Promise<void>;
   exportConversation(convId: string, format: 'md' | 'html'): Promise<void>;
+  // ---- 管理（M3） ----
+  /** 输入框里要预先填好的文字（token 变了就填一次） */
+  prefill: { text: string; token: number } | null;
+  /** 在新对话里试运行一个 Skill：新开对话，输入框里填好 /名字 */
+  tryRunSkill(name: string): void;
 }
 
 export type View = 'chat' | 'board' | 'automation' | 'search';
@@ -216,6 +222,7 @@ export const useStore = create<UiState>((set, get) => {
     view: 'chat',
     skills: {},
     automation: null,
+    prefill: null,
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -567,6 +574,12 @@ export const useStore = create<UiState>((set, get) => {
       } catch (e) {
         get().toast(`停不下来：${errText(e)}`);
       }
+    },
+
+    tryRunSkill(name) {
+      set({ dialog: null });
+      get().startDraft();
+      set(s => ({ prefill: { text: `/${name} `, token: (s.prefill?.token ?? 0) + 1 } }));
     },
 
     async openSession(sessionId, projectPath) {

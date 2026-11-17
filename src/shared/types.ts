@@ -82,6 +82,8 @@ export interface HistorySearchHit {
 
 export type { EmployeeProfile, MemoryScope } from './profile';
 export type { Schedule, ScheduleKind } from './schedule';
+export type { McpServerInput, McpServerView, McpTransport, SettingsForm, SettingsScope, SettingsView, SkillDoc, SkillEntry } from './manage';
+import type { McpServerInput, McpServerView, SettingsForm, SettingsScope, SettingsView, SkillDoc, SkillEntry } from './manage';
 
 /** 自动化（C4）：按计划让 Claude 自动跑任务 */
 export interface Automation {
@@ -510,6 +512,23 @@ export interface ClaudexApi {
   pinConversation(convId: string, pinned: boolean): Promise<ConversationMeta>;
   /** 导出成 Markdown 或 HTML：弹保存框，返回保存的路径（取消返回 null） */
   exportConversation(convId: string, format: 'md' | 'html'): Promise<string | null>;
+  // ---- 管理（M3）：Skills、MCP 服务器、Claude Code 设置 ----
+  /** 用户级、这个项目的、插件自带的 Skills */
+  listSkillFiles(projectPath: string | null): Promise<SkillEntry[]>;
+  readSkillFile(path: string): Promise<SkillDoc>;
+  /** 保存 SKILL.md（格式不对时报错） */
+  saveSkillFile(path: string, content: string): Promise<SkillDoc>;
+  createSkill(scope: 'user' | 'project', projectPath: string | null, name: string, description: string): Promise<SkillDoc>;
+  /** 整个 Skill 文件夹移到回收站 */
+  deleteSkill(path: string): Promise<void>;
+  /** 这个项目能用的 MCP 服务器和它们的状态（会实际连一次） */
+  listMcpServers(projectPath: string): Promise<McpServerView[]>;
+  /** 新建或修改（old 是修改前的名字和范围） */
+  saveMcpServer(projectPath: string, input: McpServerInput, old: { name: string; scope: string } | null): Promise<void>;
+  removeMcpServer(projectPath: string, name: string, scope: string): Promise<void>;
+  readClaudeSettings(scope: SettingsScope, projectPath: string | null): Promise<SettingsView>;
+  /** 只把 before → after 改动的几项写进文件 */
+  saveClaudeSettings(scope: SettingsScope, projectPath: string | null, before: SettingsForm, after: SettingsForm): Promise<SettingsView>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

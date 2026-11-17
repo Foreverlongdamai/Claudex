@@ -24,6 +24,7 @@ import { TerminalManager, listShells } from './terminal';
 import { AutomationManager } from './automation';
 import { appIcon, createTray } from './tray';
 import { HistoryManager } from './history';
+import * as manage from './manage';
 
 // 自动化测试用独立的数据目录，不碰用户真实的数据
 if (process.env.CLAUDEX_USER_DATA) app.setPath('userData', process.env.CLAUDEX_USER_DATA);
@@ -239,6 +240,10 @@ async function removeConversation(id: string): Promise<void> {
   store.removeConversation(id);
 }
 
+const projectPaths = () => store.state.projects.map(p => p.path);
+/** 运行 claude mcp 命令用的环境 */
+const mcpEnv = () => sessionEnv(gitBash().path, app.getVersion());
+
 function registerIpc(): void {
   const api: Omit<ClaudexApi, 'onEvent' | 'onTerm' | 'onGit' | 'termWrite' | 'termResize' | 'pathForFile'> = {
     getState: async () => store.state,
@@ -399,6 +404,35 @@ function registerIpc(): void {
       fs.writeFileSync(target, content, 'utf8');
       log(`导出对话：${target}`);
       return target;
+    },
+    // ---- 管理（M3） ----
+    listSkillFiles: async p => manage.listSkillFiles(p),
+    readSkillFile: async file => manage.readSkill(file, projectPaths()),
+    saveSkillFile: async (file, content) => { const d = manage.saveSkill(file, content, projectPaths()); manager.forgetSkills(); return d; },
+    createSkill: async (scope, p, name, desc) => { const d = manage.createSkill(scope, p, name, desc); manager.forgetSkills(); log(`新建 Skill：${d.entry.path}`); return d; },
+    deleteSkill: async file => { await manage.deleteSkill(file, projectPaths(), trash); manager.forgetSkills(); log(`删除 Skill：${file}`); },
+    listMcpServers: async p => {
+      const disabled = disabledMcp(p);
+      return manage.toServerViews(await manager.mcpStatus(p, disabled), new Set(disabled), manage.projectServerConfigs(p));
+    },
+    saveMcpServer: async (p, input, old) => {
+      await manage.saveServer(input, p, mcpEnv(), old ?? undefined);
+      // 用户自己在 Claudex 里加的项目服务器：算批准过
+      if (input.scope === 'project') store.setMcpApproval(p, input.name, true);
+      if (input.scope === 'user' || old?.scope === 'user') manager.markAllStale(); else manager.markProjectStale(p);
+      log(`${old ? '修改' : '添加'} MCP 服务器：${input.name}（${input.scope}）`);
+    },
+    removeMcpServer: async (p, name, scope) => {
+      await manage.removeServer(name, scope, p, mcpEnv());
+      if (scope === 'user') manager.markAllStale(); else manager.markProjectStale(p);
+      log(`删除 MCP 服务器：${name}（${scope}）`);
+    },
+    readClaudeSettings: async (scope, p) => manage.readSettings(scope, p),
+    saveClaudeSettings: async (scope, p, before, after) => {
+      const v = manage.saveSettings(scope, p, before, after);
+      if (scope === 'user') manager.markAllStale(); else if (p) manager.markProjectStale(p);
+      log(`保存 Claude Code 设置：${v.path}`);
+      return v;
     }
   };
   for (const m of API_METHODS) {

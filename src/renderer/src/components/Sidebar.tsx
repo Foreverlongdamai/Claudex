@@ -102,8 +102,8 @@ export function Sidebar() {
           title="定时任务和审查队列" onClick={() => useStore.getState().setView(view === 'automation' ? 'chat' : 'automation')}>
           <Icon name="clock" />自动化{toReview > 0 && <span className="nav-badge" data-testid="automation-badge" title="审查队列里等你看的结果">{toReview}</span>}
         </button>
-        <button className="nav-item" disabled title="M3 阶段"><Icon name="spark" />Skills<span className="ms">M3</span></button>
-        <button className="nav-item" disabled title="M3 阶段"><Icon name="plug" />MCP 服务器<span className="ms">M3</span></button>
+        <button className="nav-item" data-testid="skills-button" title="用户级、项目的、插件自带的 Skills：查看、编辑、新建" onClick={() => useStore.setState({ dialog: { kind: 'manage', tab: 'skills' } })}><Icon name="spark" />Skills</button>
+        <button className="nav-item" data-testid="mcp-button" title="MCP 服务器：状态、添加、修改、删除" onClick={() => useStore.setState({ dialog: { kind: 'manage', tab: 'mcp' } })}><Icon name="plug" />MCP 服务器</button>
       </div>
       <div className="side-label">
         对话
