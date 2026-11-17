@@ -11,6 +11,7 @@ import {
   query,
   type CanUseTool,
   type HookCallback,
+  type McpServerConfig,
   type PermissionResult,
   type PermissionUpdate,
   type Query,
@@ -27,7 +28,12 @@ import { matchBlacklist } from '../guard/blacklist';
 import { SDK_MODE, skillsModeDecision, wrapForMode } from '../guard/modes';
 
 export interface SessionDeps {
-  env: () => Record<string, string | undefined>;
+  /** 给 Claude Code 子进程的环境变量（带上项目指定的 conda 环境） */
+  env: (meta?: ConversationMeta) => Record<string, string | undefined>;
+  /** 加在 Claude Code 默认系统提示后面的内容（项目环境的说明） */
+  systemAppend: (meta: ConversationMeta) => string | null;
+  /** Claudex 自己提供给 Claude 的工具（set_project_env 等） */
+  extraMcp: (meta: ConversationMeta) => Record<string, McpServerConfig> | null;
   blacklist: () => BlacklistRule[];
   disabledMcp: (projectPath: string) => string[];
   emit: (ev: ConvEvent) => void;
@@ -131,17 +137,24 @@ export class ConvSession {
     const input = new InputQueue();
     this.input = input;
     this.setStatus('starting');
+    this.stale = false;
+    const append = this.deps.systemAppend(meta);
+    const mcp = this.deps.extraMcp(meta);
     const q = query({
       prompt: input,
       options: {
         cwd: convCwd(meta), // 在 worktree 里的对话就在 worktree 里干活（C3）
+        // 用 Claude Code 自己的默认系统提示（SDK 不传时是空的，见 spikes/c3/README.md），后面加上项目环境的说明；
+        // snapshot: false：每次请求重新生成，项目环境改了，续接的旧对话也能看到
+        systemPrompt: { type: 'preset', preset: 'claude_code', ...(append ? { append } : {}), snapshot: false },
+        ...(mcp ? { mcpServers: mcp } : {}),
         model: meta.model,
         effort: meta.effort,
         permissionMode: SDK_MODE[meta.mode],
         allowDangerouslySkipPermissions: true,
         ...(meta.sessionId ? { resume: meta.sessionId } : {}),
         includePartialMessages: true,
-        env: this.deps.env(),
+        env: this.deps.env(meta),
         canUseTool: this.canUseTool,
         hooks: { PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [this.guardHook] }] },
         settings: { disabledMcpjsonServers: this.deps.disabledMcp(meta.projectPath) },
@@ -198,7 +211,14 @@ export class ConvSession {
     }
   }
 
+  /** 项目环境改了：下次发消息时重启进程（新的 PATH 和系统提示要重启才生效） */
+  private stale = false;
+  markStale(): void {
+    this.stale = true;
+  }
+
   async send(text: string, images: ImageAttachment[] = [], files: FileAttachment[] = []): Promise<void> {
+    if (this.q && this.stale && !this.busy) this.close(); // 会话 ID 不变，下面马上续接
     if (!this.q) this.start();
     for (const f of files) this.attached.add(normFile(f.path));
     const body = wrapForMode(this.meta.mode, withAttachments(text, files));
@@ -254,6 +274,8 @@ export class ConvSession {
   }
 
   private canUseTool: CanUseTool = async (toolName, input, opts) => {
+    // Claudex 自己提供的工具（登记项目环境等）只改 Claudex 的设置，不用问
+    if (toolName.startsWith('mcp__claudex__')) return { behavior: 'allow', updatedInput: input };
     // 读用户自己拖进来的附件：用户的意思就是让 Claude 读，直接放行（项目目录外的文件 Claude Code 默认会问）
     if (toolName === 'Read' && this.isAttached((input as { file_path?: unknown }).file_path)) return { behavior: 'allow', updatedInput: input };
     // Skills 配置模式：按规则自动放行或拒绝；提问和计划仍然要用户回答

@@ -1,6 +1,6 @@
 // C3 worktree（src/main/worktree.ts）：在临时仓库里实际跑一遍创建、接手到本地、删除。
 // 运行：npm run test:unit
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -92,8 +92,16 @@ async function suite(autocrlf: 'false' | 'true') {
     const subSaved = sh(repo, 'show', `${sub.branch}:pkg/app/main.py`);
     check(tag + '删除：改动存在分支上', subSaved === 'print("changed in sub")', subSaved);
     check(tag + '删除：worktree 文件夹空了就一起删掉', !fs.existsSync(path.join(tmp, '.claudex-worktrees')));
-    await wt.discard(repo, sub);
-    check(tag + '删除：worktree 已经不在了也不报错', true);
+    check(tag + '删除：worktree 已经不在了也不报错', (await wt.discard(repo, sub)) === null);
+
+    // ---- 文件夹被占着（刚关掉的进程还没退出）：等它退出再删 ----
+    const c = await wt.createWorktree(repo, new Date(2026, 10, 17, 17, 0));
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2500)'], { cwd: c.path, stdio: 'ignore' });
+    const t0 = Date.now();
+    const left = await wt.discard(repo, c);
+    check(tag + '被占着：等进程退出后删干净', left === null && !fs.existsSync(c.path), { left, ms: Date.now() - t0 });
+    check(tag + '被占着：git 里也没有这个 worktree 的记录了', !sh(repo, 'worktree', 'list').includes('1117-1700'));
+    holder.kill();
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

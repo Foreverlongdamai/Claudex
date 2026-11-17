@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { EFFORTS, type AppState, type ConversationMeta, type Effort, type Prefs, type Project, type WorktreeInfo } from '../shared/types';
+import { EFFORTS, type AppState, type CondaEnv, type ConversationMeta, type Effort, type Prefs, type Project, type WorktreeInfo } from '../shared/types';
 import { DEFAULT_BLACKLIST } from './guard/blacklist';
 
 const MODEL_IDS: Record<string, string> = { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
@@ -83,6 +83,19 @@ export class Store {
     this.state.projects.push(project);
     this.save();
     return project;
+  }
+
+  project(projectPath: string): Project | undefined {
+    return this.state.projects.find(p => samePath(p.path, projectPath));
+  }
+
+  setProjectEnv(projectPath: string, env: CondaEnv | null): void {
+    this.state.projects = this.state.projects.map(p => {
+      if (!samePath(p.path, projectPath)) return p;
+      const { condaEnv: _old, ...rest } = p;
+      return env ? { ...rest, condaEnv: env } : rest;
+    });
+    this.save();
   }
 
   removeProject(projectPath: string): void {

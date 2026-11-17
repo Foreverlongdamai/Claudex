@@ -12,7 +12,7 @@ export const API_METHODS = [
   'respondPermission', 'pendingMcp', 'setMcpApproval', 'listCommands', 'listFiles', 'gitBranch',
   'setPrefs', 'setTheme', 'openExternal', 'listShells', 'termOpen', 'termRestart', 'termKill', 'termRekey',
   'gitStatus', 'gitDiff', 'gitStage', 'gitUnstage', 'gitRevert', 'gitCommit', 'gitInit', 'gitCheckBranch', 'gitWatch',
-  'worktreeCheck', 'handoff'
+  'worktreeCheck', 'handoff', 'condaInfo', 'setProjectEnv'
 ] as const satisfies ReadonlyArray<InvokeMethod>;
 
 export type ApiMethod = (typeof API_METHODS)[number];

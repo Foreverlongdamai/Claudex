@@ -106,6 +106,45 @@ function PlaceMenu({ projectPath }: { projectPath: string }) {
   );
 }
 
+/** 项目指定的 conda 环境：项目里所有对话和终端都用它。没装 conda 时不显示 */
+function EnvMenu({ projectPath }: { projectPath: string }) {
+  const conda = useStore(s => s.conda);
+  const env = useStore(s => s.app?.projects.find(p => p.path === projectPath)?.condaEnv);
+  const { loadConda, setProjectEnv } = useStore.getState();
+  const [open, setOpen] = useState(false);
+  const ref = useOutsideClose(open, () => setOpen(false));
+  useEffect(() => { if (open) void loadConda(true); }, [open, loadConda]);
+  if (!conda?.available) return null;
+  const pick = (prefix: string | null) => { setOpen(false); void setProjectEnv(projectPath, prefix); };
+  return (
+    <div className="dd" ref={ref}>
+      <button className={`mchip${env ? ' env-set' : ''}`} data-testid="env-button" title={env ? `项目的 Python 环境：${env.prefix}` : '这个项目还没有指定 Python 环境，需要时 Claude 会先找现有的 conda 环境，没有就新建一个'}
+        onClick={() => setOpen(o => !o)}>
+        <Icon name="pkg" size={14} />{env ? env.name : 'Python 环境'}<Icon name="down" size={14} />
+      </button>
+      {open && (
+        <div className="menu env-menu">
+          <div className="menu-sec">这个项目用哪个 conda 环境（所有对话和终端都用它）</div>
+          <button className={`mitem${!env ? ' on' : ''}`} data-env="" onClick={() => pick(null)}>
+            <Icon name="spark" />
+            <span className="mi"><b>不指定</b><span>需要运行 Python 时，Claude 先找现有的环境，没有就为这个项目新建一个，再登记成项目环境</span></span>
+            <Icon name="check" size={14} className="tick" />
+          </button>
+          <div className="menu-sep" />
+          {conda.envs.map(e => (
+            <button key={e.prefix} className={`mitem${env?.prefix === e.prefix ? ' on' : ''}`} data-env={e.name} onClick={() => pick(e.prefix)}>
+              <Icon name="pkg" />
+              <span className="mi"><b>{e.name}</b><span className="mono">{e.prefix}</span></span>
+              <Icon name="check" size={14} className="tick" />
+            </button>
+          ))}
+          <div className="menu-foot">换了以后，正在运行的对话从下一条消息开始用新环境</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModelPicker() {
   const settings = useCurrentSettings();
   const models = useStore(s => s.models);
@@ -373,6 +412,7 @@ export function Composer() {
         <ModeMenu />
         {project && <span className="uchip" title={project.path}><Icon name="folder" size={14} />{project.name}</span>}
         {projectPath && <PlaceMenu projectPath={projectPath} />}
+        {projectPath && <EnvMenu projectPath={projectPath} />}
         {branch && <span className="uchip" title="Git 分支" data-testid="branch-chip"><Icon name="branch" size={14} />{branch}</span>}
         <span className="sp" />
         <span className="uhint">Enter 发送 · Shift+Enter 换行 · Shift+Tab 切换模式</span>

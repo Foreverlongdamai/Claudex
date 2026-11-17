@@ -90,12 +90,15 @@ export class TerminalManager {
   constructor(
     private emit: (ev: TermEvent) => void,
     private gitBash: () => string | null,
-    private log: (line: string) => void
+    private log: (line: string) => void,
+    /** 这个目录要用的环境变量（项目指定了 conda 环境时）；null 用 Claudex 自己的 */
+    private envFor: (cwd: string) => Record<string, string | undefined> | null = () => null
   ) {}
 
-  private command(id: string, shell: ShellKind): { file: string; args: string[]; env: Record<string, string>; shell: ShellKind } {
+  private command(id: string, shell: ShellKind, cwd: string): { file: string; args: string[]; env: Record<string, string>; shell: ShellKind } {
     // CLAUDEX_TERM_ID：终端里启动的所有程序都会继承它，结束终端时靠它找出 Git Bash 里“脱离了进程树”的程序
-    const env: Record<string, string> = { ...(process.env as Record<string, string>), TERM_PROGRAM: 'Claudex', COLORTERM: 'truecolor', CLAUDEX_TERM_ID: id };
+    const base = (this.envFor(cwd) ?? process.env) as Record<string, string>;
+    const env: Record<string, string> = { ...base, TERM_PROGRAM: 'Claudex', COLORTERM: 'truecolor', CLAUDEX_TERM_ID: id };
     delete env.ELECTRON_RUN_AS_NODE;
     if (shell === 'gitbash') {
       const bash = this.gitBash();
@@ -112,7 +115,7 @@ export class TerminalManager {
   }
 
   private start(t: Term): void {
-    const { file, args, env, shell } = this.command(t.id, t.shell);
+    const { file, args, env, shell } = this.command(t.id, t.shell, t.cwd);
     t.shell = shell;
     const cwd = fs.existsSync(t.cwd) ? t.cwd : os.homedir();
     // 用系统自带的 ConPTY。node-pty 自带的新版 ConPTY（useConptyDll）不漏 conhost，但上一条命令还没结束就接着打字时，

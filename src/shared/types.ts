@@ -12,6 +12,21 @@ export interface Project {
   path: string;
   name: string;
   addedAt: number;
+  /** 项目指定的 conda 环境：项目里所有对话和终端都用它 */
+  condaEnv?: CondaEnv;
+}
+
+export interface CondaEnv {
+  /** 环境名（base 或者 envs 下面的文件夹名；按路径建的环境是文件夹名） */
+  name: string;
+  /** 环境的完整路径 */
+  prefix: string;
+}
+
+export interface CondaInfo {
+  available: boolean;
+  root: string | null;
+  envs: CondaEnv[];
 }
 
 export interface ConversationMeta {
@@ -53,6 +68,8 @@ export interface HandoffResult {
   /** 存着接手时全部改动的分支 */
   branch: string;
   meta: ConversationMeta;
+  /** worktree 文件夹没删干净（还有程序占着），可以稍后手动删 */
+  leftover?: string;
 }
 
 /** 保底黑名单：任何模式下都拦截的高危命令。pattern 是正则表达式源码。 */
@@ -293,7 +310,9 @@ export type ConvEvent =
   | { kind: 'meta'; convId: string; meta: ConversationMeta }
   | { kind: 'usage'; convId: string; usage: UsageInfo }
   | { kind: 'blocked'; convId: string; toolName: string; rule: string; detail: string }
-  | { kind: 'mode'; convId: string; mode: ModeId };
+  | { kind: 'mode'; convId: string; mode: ModeId }
+  /** Claude 用 set_project_env 登记了项目环境 */
+  | { kind: 'project-env'; convId: string; projectPath: string; env: CondaEnv };
 
 export interface OpenedConversation {
   meta: ConversationMeta;
@@ -321,6 +340,10 @@ export interface ClaudexApi {
   worktreeCheck(projectPath: string): Promise<string | null>;
   /** 把 worktree 对话的改动搬到本地，删掉 worktree，对话改在本地继续 */
   handoff(convId: string): Promise<HandoffResult>;
+  /** 本机的 conda 和它的环境；force 时重新查 */
+  condaInfo(force?: boolean): Promise<CondaInfo>;
+  /** 指定项目的 conda 环境（prefix 为 null 表示不指定，需要时让 Claude 来选） */
+  setProjectEnv(projectPath: string, prefix: string | null): Promise<AppState>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

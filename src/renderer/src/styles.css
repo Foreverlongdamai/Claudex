@@ -444,6 +444,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 .sess-wt { display: flex; color: var(--env); flex: none; margin-left: -20px; width: 14px; }
 .plain-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
 .plain-list li { margin: 3px 0; }
+/* 项目环境（conda） */
+.mchip.env-set { color: var(--text); }
+.env-menu { width: 420px; max-height: 420px; overflow: auto; }
+.env-menu .mi .mono { font-family: var(--mono); font-size: 11px; word-break: break-all; }
 /* 改动面板打开、对话区变窄时：输入框下面的标签不折行，提示文字放不下就截断 */
 .under { min-width: 0; }
 .under .mchip, .under .uchip { white-space: nowrap; flex: none; }

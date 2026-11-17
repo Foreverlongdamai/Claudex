@@ -85,21 +85,30 @@ async function mainRoot(wt: WorktreeInfo, fallback: string): Promise<string> {
   }
 }
 
-async function removeWorktree(fallbackRoot: string, wt: WorktreeInfo): Promise<void> {
+/**
+ * 删掉 worktree 文件夹，再让 git 清理它的记录。删干净返回 true。
+ * 不用 git worktree remove：它在 Windows 上遇到被占用的文件会删到一半（先删掉 .git 文件）就失败，之后 git 不再认它是 worktree。
+ * 刚关掉的 Claude 进程（和它启动的 MCP 服务器等）可能还占着文件夹，所以多等几次。
+ */
+async function removeWorktree(fallbackRoot: string, wt: WorktreeInfo): Promise<boolean> {
   const root = await mainRoot(wt, fallbackRoot);
-  // 刚关掉的 Claude 进程、终端可能还占着这个文件夹（Windows 上删不掉），等一下再试
-  for (let i = 0; ; i++) {
+  let gone = false;
+  for (let i = 0; i < 15 && !gone; i++) {
     try {
-      await git(root, ['worktree', 'remove', '--force', wt.path], { timeout: 120_000 });
-      break;
-    } catch (e) {
-      if (i >= 4) throw new Error(`删不掉 worktree 文件夹（可能还有程序在用它，比如终端里跑着的命令）：${e instanceof Error ? e.message : e}`);
-      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+      fs.rmSync(wt.path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    } catch {
+      // 还被占着
     }
+    gone = !fs.existsSync(wt.path);
+    if (!gone) await new Promise(r => setTimeout(r, 700));
   }
-  // 项目的 worktree 文件夹空了就顺手删掉
-  try { fs.rmdirSync(path.dirname(wt.path)); } catch { /* 还有别的 worktree */ }
-  try { fs.rmdirSync(path.dirname(path.dirname(wt.path))); } catch { /* 还有别的项目 */ }
+  if (fs.existsSync(root)) await git(root, ['worktree', 'prune']).catch(() => {});
+  if (gone) {
+    // 项目的 worktree 文件夹空了就顺手删掉
+    try { fs.rmdirSync(path.dirname(wt.path)); } catch { /* 还有别的 worktree */ }
+    try { fs.rmdirSync(path.dirname(path.dirname(wt.path))); } catch { /* 还有别的项目 */ }
+  }
+  return gone;
 }
 
 /** 某个版本里的文件内容，按仓库的换行设置转换成工作区里的样子（CRLF 之类）；没有这个文件返回 null */
@@ -154,7 +163,7 @@ async function applyFileByFile(root: string, base: string, tree: string): Promis
 }
 
 /** 接手到本地：把 worktree 里的全部改动搬到本地项目文件夹（未提交的改动），然后删掉 worktree */
-export async function handoff(projectPath: string, wt: WorktreeInfo): Promise<{ files: number; conflicts: string[] }> {
+export async function handoff(projectPath: string, wt: WorktreeInfo): Promise<{ files: number; conflicts: string[]; leftover?: string }> {
   const root = await repoRoot(projectPath);
   if (!root) throw new Error('本地项目文件夹不是 Git 仓库了');
   if (!fs.existsSync(wt.path)) throw new Error(`找不到 worktree 的文件夹：${wt.path}`);
@@ -175,17 +184,18 @@ export async function handoff(projectPath: string, wt: WorktreeInfo): Promise<{ 
       fs.rmSync(patch, { force: true });
     }
   }
-  await removeWorktree(root, wt);
-  return { files: names.length, conflicts };
+  // 改动已经搬到本地、也存在分支上了：文件夹删不干净只是提示，不算接手失败
+  const gone = await removeWorktree(root, wt);
+  return { files: names.length, conflicts, ...(gone ? {} : { leftover: wt.path }) };
 }
 
-/** 删除 worktree 对话：改动先存到分支上，再删掉 worktree */
-export async function discard(projectPath: string, wt: WorktreeInfo): Promise<void> {
+/** 删除 worktree 对话：改动先存到分支上，再删掉 worktree。文件夹删不干净时返回它的路径 */
+export async function discard(projectPath: string, wt: WorktreeInfo): Promise<string | null> {
   const root = (await repoRoot(projectPath)) ?? projectPath;
   if (!fs.existsSync(wt.path)) {
     if (fs.existsSync(root)) await git(root, ['worktree', 'prune']).catch(() => {});
-    return;
+    return null;
   }
   await saveToBranch(wt, 'Claudex：删除对话时 worktree 里的全部改动');
-  await removeWorktree(root, wt);
+  return (await removeWorktree(root, wt)) ? null : wt.path;
 }

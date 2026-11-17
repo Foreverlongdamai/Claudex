@@ -1,7 +1,7 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, CommitRequest, CommitResult, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  AppState, CommitRequest, CommitResult, CondaInfo, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { convCwd } from '@shared/conv';
@@ -109,6 +109,10 @@ interface UiState {
   /** 当前对话（或草稿）的项目里加一条提示 */
   notify(tone: 'ok' | 'error', text: string, detail?: string, link?: { label: string; url: string }): void;
   setDraftPlace(place: 'local' | 'worktree'): void;
+  /** 本机的 conda（没装就是 available: false） */
+  conda: CondaInfo | null;
+  loadConda(force?: boolean): Promise<void>;
+  setProjectEnv(projectPath: string, prefix: string | null): Promise<void>;
   /** 接手到本地（C3） */
   handoff(convId: string): Promise<void>;
 }
@@ -156,6 +160,7 @@ export const useStore = create<UiState>((set, get) => {
     gitTick: 0,
     commitToken: 0,
     gitBusy: null,
+    conda: null,
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -165,6 +170,7 @@ export const useStore = create<UiState>((set, get) => {
       const firstProject = app.projects[0]?.path ?? null;
       set({ app, env, ready: true, activeProject: firstProject, draft: firstProject ? { mode: app.prefs.defaultMode, model: app.prefs.defaultModel, effort: app.prefs.defaultEffort } : null });
       if (firstProject) void get().refreshBranch(firstProject);
+      void get().loadConda();
       // 模型列表要起一个 Claude Code 进程去查，放后台
       api.listModels()
         .then(models => set({ models, modelsError: null }))
@@ -205,6 +211,12 @@ export const useStore = create<UiState>((set, get) => {
         case 'mode':
           patchConv(ev.convId, c => ({ meta: { ...c.meta, mode: ev.mode } }));
           get().toast(MODES[ev.mode].toast);
+          break;
+        case 'project-env':
+          set(s => (s.app ? { app: { ...s.app, projects: s.app.projects.map(p => (p.path === ev.projectPath ? { ...p, condaEnv: ev.env } : p)) } } : s));
+          patchConv(ev.convId, c => ({
+            timeline: addNotice(c.timeline, 'ok', `Claude 把 conda 环境「${ev.env.name}」登记为这个项目的 Python 环境`, `${ev.env.prefix}\n这个项目里所有的对话（包括 worktree 里的）和终端都会用它；可以在输入框下面更换`)
+          }));
           break;
       }
     },
@@ -446,6 +458,25 @@ export const useStore = create<UiState>((set, get) => {
       set(s => ({ gitTick: s.gitTick + 1 }));
     },
 
+    async loadConda(force) {
+      try {
+        set({ conda: await api.condaInfo(force) });
+      } catch {
+        set({ conda: { available: false, root: null, envs: [] } });
+      }
+    },
+
+    async setProjectEnv(projectPath, prefix) {
+      try {
+        const app = await api.setProjectEnv(projectPath, prefix);
+        set({ app });
+        const env = app.projects.find(p => p.path === projectPath)?.condaEnv;
+        get().toast(env ? `这个项目改用 conda 环境「${env.name}」（正在运行的对话下一条消息起生效）` : '这个项目不指定 Python 环境了，需要时让 Claude 来选');
+      } catch (e) {
+        get().toast(`设置失败：${errText(e)}`);
+      }
+    },
+
     setDraftPlace(place) {
       set(s => ({ draft: { ...(s.draft ?? defaultDraft()), place } }));
     },
@@ -459,6 +490,7 @@ export const useStore = create<UiState>((set, get) => {
         const text = r.files ? `已接手到本地：${r.files} 个文件的改动搬到了项目文件夹，没有提交` : '已接手到本地（worktree 里没有改动）';
         get().notify('ok', text, `worktree 已删除；分支 ${r.branch} 里存着接手时的全部改动。之后这个对话就在本地项目文件夹里继续。`);
         if (r.conflicts.length) get().notify('error', `${r.conflicts.length} 个文件和本地的改动冲突了，已经写上冲突标记，请解决`, r.conflicts.join('\n'));
+        if (r.leftover) get().notify('error', 'worktree 文件夹没删干净（可能还有程序在用它），改动已经搬到本地、也存在分支上了，可以稍后手动删掉这个文件夹', r.leftover);
         get().toast(r.conflicts.length ? `已接手，但有 ${r.conflicts.length} 个文件冲突` : '已接手到本地');
         // 打开改动面板看搬过来的改动
         set({ reviewOpen: true, reviewScope: 'unstaged' });

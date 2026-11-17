@@ -68,6 +68,12 @@ export class SessionManager {
     await s.send(text, images, files);
   }
 
+  /** 项目环境改了：这个项目的对话下次发消息时重启进程 */
+  markProjectStale(projectPath: string): void {
+    const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\$/, '').toLowerCase();
+    for (const s of this.sessions.values()) if (norm(s.meta.projectPath) === norm(projectPath)) s.markStale();
+  }
+
   /** 正在回复或者在等审批 */
   isBusy(convId: string): boolean { return this.sessions.get(convId)?.busy ?? false; }
   interrupt(convId: string) { return this.sessions.get(convId)?.interrupt(); }

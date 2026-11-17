@@ -14,6 +14,10 @@ import { checkProject, gitBranch, listFiles, projectMcpServers } from './project
 import { ReviewManager } from './review';
 import * as worktree from './worktree';
 import { convCwd, inWorktree } from '../shared/conv';
+import { createSdkMcpServer, tool, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
+import * as conda from './conda';
+import type { CondaInfo, ConversationMeta } from '../shared/types';
 import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
 
@@ -45,11 +49,75 @@ const trash = async (p: string) => {
   fs.renameSync(p, path.join(dir, `${Date.now()}-${path.basename(p)}`));
 };
 
+// ---------------- 项目环境（conda） ----------------
+
+/** 启动时查一次，之后在登记、切换环境时刷新（会话启动时要同步拿到） */
+let condaState: (CondaInfo & { install: conda.CondaInstall | null }) | null = null;
+const refreshConda = async (force = false) => (condaState = await conda.condaInfo(force));
+
+/** 某个目录属于哪个项目（worktree 对话的目录也算它的项目） */
+function projectOf(dir: string) {
+  const conv = store.state.conversations.find(c => c.worktree && samePath(c.worktree.cwd, dir));
+  if (conv) return store.project(conv.projectPath);
+  const d = path.resolve(dir).toLowerCase();
+  return store.state.projects.find(p => { const pp = path.resolve(p.path).toLowerCase(); return d === pp || d.startsWith(pp + path.sep); });
+}
+
+/** Claude Code 子进程的环境变量：项目指定了 conda 环境就像 conda activate 一样带上 */
+function envFor(projectPath?: string): Record<string, string | undefined> {
+  const env = sessionEnv(gitBash().path, app.getVersion());
+  const p = projectPath ? store.project(projectPath) : undefined;
+  return p?.condaEnv ? conda.activate(env, p.condaEnv, condaState?.install ?? null) : env;
+}
+
+function systemAppend(meta: ConversationMeta): string | null {
+  const p = store.project(meta.projectPath);
+  if (!condaState && !p?.condaEnv) return null;
+  return conda.envPrompt(p?.name ?? path.basename(meta.projectPath), p?.condaEnv, condaState ?? { available: true, root: null, envs: [] });
+}
+
+/** Claudex 提供给 Claude 的工具：登记项目环境 */
+function claudexMcp(meta: ConversationMeta): Record<string, McpServerConfig> | null {
+  if (!condaState?.available) return null;
+  const server = createSdkMcpServer({
+    name: 'claudex',
+    version: app.getVersion(),
+    tools: [
+      tool(
+        'set_project_env',
+        '把一个 conda 环境登记为本项目的 Python 环境。登记以后，本项目所有的对话（包括 worktree 里的）和终端都会自动用它（放在 PATH 最前面）。参数是 conda env list 里的环境名，或者环境的完整路径。',
+        { env: z.string().describe('conda 环境名（比如 myproj）或完整路径') },
+        async ({ env }) => {
+          const info = await refreshConda(true); // 可能刚新建了环境
+          const hit = conda.findEnv(info, env);
+          if (!hit) {
+            const list = info.envs.map(e => `${e.name}（${e.prefix}）`).join('、') || '（没有）';
+            return { content: [{ type: 'text', text: `找不到 conda 环境「${env}」。现有的环境：${list}。先用 conda create 建好再登记。` }], isError: true };
+          }
+          store.setProjectEnv(meta.projectPath, hit);
+          manager.markProjectStale(meta.projectPath);
+          emit({ kind: 'project-env', convId: meta.id, projectPath: meta.projectPath, env: hit });
+          log(`项目环境：${meta.projectPath} → ${hit.prefix}（Claude 登记）`);
+          return {
+            content: [{
+              type: 'text',
+              text: `已登记：本项目的 Python 环境是 conda 环境「${hit.name}」（${hit.prefix}）。本项目所有对话（包括 worktree 里的）从下一条消息开始自动用它。这一轮里如果还要运行 Python，请直接用 "${path.join(hit.prefix, 'python.exe')}"。`
+            }]
+          };
+        }
+      )
+    ]
+  });
+  return { claudex: server };
+}
+
 /** 删 worktree 之前：关掉这个对话的 Claude 进程和终端、停止监视（Windows 上有程序占着文件夹就删不掉） */
-async function releaseWorktree(convId: string): Promise<void> {
+async function releaseWorktree(convId: string, dir: string): Promise<void> {
+  review.suspend(dir); // 删除期间界面再要求监视它也不监视
   manager.delete(convId);
   terminals.closeKeys(k => k === convId);
   await review.watch(null);
+  await new Promise(r => setTimeout(r, 300)); // 等进程退出
 }
 
 /** 没批准过的项目 MCP 服务器一律不启动 */
@@ -128,8 +196,14 @@ function registerIpc(): void {
       const meta = store.conversation(id);
       if (!meta?.worktree || !inWorktree(meta)) throw new Error('这个对话不在 worktree 里');
       if (manager.isBusy(id)) throw new Error('Claude 正在回复或者在等你审批，等这一轮结束再接手');
-      await releaseWorktree(id);
-      const r = await worktree.handoff(meta.projectPath, meta.worktree);
+      await releaseWorktree(id, meta.worktree.path);
+      let r: Awaited<ReturnType<typeof worktree.handoff>>;
+      try {
+        r = await worktree.handoff(meta.projectPath, meta.worktree);
+      } finally {
+        review.resume(meta.worktree.path);
+      }
+      if (r.leftover) log(`接手后 worktree 文件夹没删干净：${r.leftover}`);
       // 对话改在本地继续：会话 ID 不变（Claude Code 能跨同一仓库的 worktree 找到会话，见 spikes/c3）
       const next = { ...meta, worktree: { ...meta.worktree, handedOff: { at: Date.now(), files: r.files } } };
       store.updateConversation(next);
@@ -143,8 +217,13 @@ function registerIpc(): void {
       const meta = store.conversation(id);
       if (meta?.worktree && inWorktree(meta)) {
         // worktree 里的改动先存到它的分支上，再删掉 worktree
-        await releaseWorktree(id);
-        await worktree.discard(meta.projectPath, meta.worktree);
+        await releaseWorktree(id, meta.worktree.path);
+        try {
+          const leftover = await worktree.discard(meta.projectPath, meta.worktree);
+          if (leftover) log(`删除对话时 worktree 文件夹没删干净：${leftover}`);
+        } finally {
+          review.resume(meta.worktree.path);
+        }
       }
       manager.delete(id);
       review.forget(id);
@@ -195,7 +274,22 @@ function registerIpc(): void {
     gitCommit: (cwd, req) => git.commit(cwd, req, root => writeCommitMessage(root, sessionEnv(gitBash().path, app.getVersion()))),
     gitInit: cwd => git.init(cwd),
     gitCheckBranch: (cwd, name) => git.checkBranchName(cwd, name),
-    gitWatch: cwd => review.watch(cwd)
+    gitWatch: cwd => review.watch(cwd),
+    // ---- 项目环境（conda） ----
+    condaInfo: async force => {
+      const { install: _install, ...info } = await refreshConda(!!force);
+      return info;
+    },
+    setProjectEnv: async (p, prefix) => {
+      if (prefix === null) store.setProjectEnv(p, null);
+      else {
+        const hit = conda.findEnv(await refreshConda(), prefix) ?? conda.findEnv(await refreshConda(true), prefix);
+        if (!hit) throw new Error(`找不到这个 conda 环境：${prefix}`);
+        store.setProjectEnv(p, hit);
+      }
+      manager.markProjectStale(p);
+      return store.state;
+    }
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
@@ -216,13 +310,19 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     store = new Store();
     manager = new SessionManager(store, {
-      env: () => sessionEnv(gitBash().path, app.getVersion()),
+      env: meta => envFor(meta?.projectPath),
+      systemAppend,
+      extraMcp: claudexMcp,
       blacklist: () => store.state.prefs.blacklist,
       disabledMcp,
       emit,
       log
     });
-    terminals = new TerminalManager(ev => win?.webContents.send(TERM_CHANNEL, ev), () => gitBash().path, log);
+    terminals = new TerminalManager(ev => win?.webContents.send(TERM_CHANNEL, ev), () => gitBash().path, log, cwd => {
+      const p = projectOf(cwd); // 终端也用项目指定的 conda 环境
+      return p?.condaEnv ? conda.activate({ ...process.env } as Record<string, string | undefined>, p.condaEnv, condaState?.install ?? null) : null;
+    });
+    void refreshConda().catch(e => log(`查 conda 失败：${e instanceof Error ? e.message : e}`));
     review = new ReviewManager(app.getPath('userData'), ev => win?.webContents.send(GIT_CHANNEL, ev), log);
     registerIpc();
     createWindow();

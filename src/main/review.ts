@@ -174,8 +174,14 @@ export class ReviewManager {
 
   // ---------------- 文件监视 ----------------
 
+  /** 正在删除的 worktree：这期间不监视（Windows 上监视会占着文件夹，删不掉） */
+  private suspended = new Set<string>();
+  suspend(dir: string): void { this.suspended.add(path.resolve(dir).toLowerCase()); }
+  resume(dir: string): void { this.suspended.delete(path.resolve(dir).toLowerCase()); }
+
   async watch(cwd: string | null): Promise<void> {
-    const root = cwd ? await repoRoot(cwd) : null;
+    let root = cwd ? await repoRoot(cwd) : null;
+    if (root && [...this.suspended].some(s => path.resolve(root!).toLowerCase().startsWith(s))) root = null;
     if (root === this.watchRoot) return;
     this.watcher?.close();
     this.watcher = null;

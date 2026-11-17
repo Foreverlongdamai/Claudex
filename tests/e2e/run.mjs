@@ -804,6 +804,63 @@ await step('40 还没有提交的仓库不能开 worktree，并说明原因', as
   await win.keyboard.press('Escape');
 });
 
+// ---------- 项目环境（conda） ----------
+/** 发完消息后一直点“允许一次”，直到这一轮结束 */
+async function runApproving(timeout = 240000) {
+  await waitFor(async () => (await win.locator('[data-testid=stop-button]').count()) === 1, 10000, '开始回复').catch(() => {});
+  const t0 = Date.now();
+  for (;;) {
+    const allow = win.locator('[data-testid=approval] button', { hasText: '允许一次' });
+    if (await allow.count()) await allow.first().click().catch(() => {});
+    if ((await win.locator('[data-testid=stop-button]').count()) === 0 && (await win.locator('[data-testid=send-button]').count()) === 1) return;
+    if (Date.now() - t0 > timeout) throw new Error('等待超时：这一轮结束');
+    await sleep(400);
+  }
+}
+const samePrefix = (text, prefix) => text.replace(/\//g, '\\').toLowerCase().includes(prefix.toLowerCase());
+const PY = 'python -c "import sys; print(sys.prefix)"';
+const condaState = async () => win.evaluate(() => window.claudex.condaInfo(true));
+
+await step('41 项目环境：在输入框下面选 conda 环境，Claude 和终端里的 python 都是这个环境', async () => {
+  const info = await condaState();
+  if (!info.available) { console.log('      （本机没装 conda，跳过）'); return; }
+  const target = info.envs.find(e => e.name !== 'base') ?? info.envs[0];
+  await win.locator('.proj-head', { hasText: 'demo-project' }).click();
+  await win.locator('[data-testid=env-button]').click();
+  await win.waitForSelector('.env-menu');
+  await shot('41-env-menu');
+  await win.locator(`.env-menu [data-env="${target.name}"]`).click();
+  await waitFor(async () => (await win.locator('[data-testid=env-button]').innerText()).includes(target.name), 5000, '输入框下面显示选好的环境');
+  await sendMsg(`Use the Bash tool to run exactly this command: ${PY}\nThen reply with exactly the printed path and nothing else.`);
+  await runApproving();
+  if (!samePrefix(await lastAssistant(), target.prefix)) throw new Error(`Claude 用的不是 ${target.name}：${await lastAssistant()}`);
+  await win.locator('[data-testid=terminal-button]').click();
+  await waitTerm(PROMPT, '终端提示符');
+  await termRun(PY);
+  await waitFor(async () => samePrefix(await termText(), target.prefix), 20000, `终端里的 python 是 ${target.name}`);
+  await shot('41-env-terminal');
+  await win.locator('[data-testid=terminal-button]').click();
+});
+
+await step('42 没指定环境时：Claude 挑一个现有的环境登记成项目环境，之后的消息自动用它', async () => {
+  const info = await condaState();
+  const target = info.envs.find(e => e.name === 'test') ?? info.envs.find(e => e.name !== 'base');
+  if (!info.available || !target) { console.log('      （本机没有可用的 conda 环境，跳过）'); return; }
+  await win.locator('.proj-head', { hasText: 'plain-project' }).click();
+  if ((await win.locator('[data-testid=env-button]').innerText()).trim() !== 'Python 环境') throw new Error('plain-project 不该有指定的环境');
+  await sendMsg(`This project needs Python. Follow the project Python environment instructions in your system prompt, but do NOT create a new environment: use the existing conda environment named "${target.name}" and register it as this project's environment with the set_project_env tool. Do not run any other commands. Reply DONE when it is registered.`);
+  await runApproving();
+  await waitOk(`Claude 把 conda 环境「${target.name}」登记`, 10000);
+  await waitFor(async () => (await win.locator('[data-testid=env-button]').innerText()).includes(target.name), 5000, '输入框下面显示登记的环境');
+  const st = await win.evaluate(() => window.claudex.getState());
+  if (st.projects.find(p => p.name === 'plain-project')?.condaEnv?.name !== target.name) throw new Error('项目设置里没记下环境');
+  await shot('42-env-registered');
+  // 下一条消息：进程按新环境重启，python 就是登记的环境
+  await sendMsg(`Use the Bash tool to run exactly this command: ${PY}\nThen reply with exactly the printed path and nothing else.`);
+  await runApproving();
+  if (!samePrefix(await lastAssistant(), target.prefix)) throw new Error(`登记后用的不是 ${target.name}：${await lastAssistant()}`);
+});
+
 await app.close();
 const failed = results.filter(r => !r.ok);
 fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
