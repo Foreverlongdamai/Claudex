@@ -123,6 +123,21 @@ export function describeTool(item: ToolItem, projectPath: PathBase): ToolView {
     case 'TaskCreate':
     case 'TaskUpdate':
       return { icon: 'listcheck', verb: '已更新计划', running: '正在更新计划', body: 'none' };
+    // Claudex 自己的工具：团队、项目环境
+    case 'mcp__claudex__list_employees':
+      return { icon: 'users', verb: '查看了团队', running: '正在查看团队', body: 'output' };
+    case 'mcp__claudex__get_employee':
+      return { icon: 'users', verb: '查看了档案', running: '正在查看档案', target: s(input.employee), body: 'output' };
+    case 'mcp__claudex__hire_employee':
+      return { icon: 'users', verb: '招聘', running: '正在招聘', target: s(input.displayName), body: 'output' };
+    case 'mcp__claudex__update_employee':
+      return { icon: 'users', verb: '修改了档案', running: '正在修改档案', target: s(input.employee), body: 'output' };
+    case 'mcp__claudex__list_tasks':
+      return { icon: 'listcheck', verb: '查看了任务', running: '正在查看任务', body: 'output' };
+    case 'mcp__claudex__get_task':
+      return { icon: 'listcheck', verb: '查看了任务', running: '正在查看任务', target: `#${s(input.task).replace(/^#/, '')}`, body: 'output' };
+    case 'mcp__claudex__set_project_env':
+      return { icon: 'pkg', verb: '登记了项目环境', running: '正在登记项目环境', target: s(input.env), body: 'output' };
     default: {
       if (item.name.startsWith('mcp__')) {
         const [, server, ...tool] = item.name.split('__');

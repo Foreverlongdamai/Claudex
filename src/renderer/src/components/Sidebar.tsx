@@ -1,4 +1,6 @@
-// 左栏：新对话、（后续阶段的入口）、按项目分组的对话列表、设置和主题。
+// 左栏：新对话、（后续阶段的入口）、按项目分组的对话列表（主对话 + 团队）、设置和主题。
+import { useState } from 'react';
+import type { ConversationMeta, EmployeeProfile } from '@shared/types';
 import { inWorktree } from '@shared/conv';
 import { useStore } from '../store';
 import { pendingApprovals } from '../timeline';
@@ -17,12 +19,60 @@ function when(ts: number): string {
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+function ConvRow({ c, indent }: { c: ConversationMeta; indent?: boolean }) {
+  const view = useStore(s => s.convs[c.id]);
+  const activeId = useStore(s => s.activeId);
+  const { openConversation, deleteConversation } = useStore.getState();
+  const running = view && (view.status === 'running' || view.status === 'starting');
+  const waiting = view && pendingApprovals(view.timeline) > 0;
+  return (
+    <div className={`sess${indent ? ' emp-sess' : ''}${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" data-id={c.id} onClick={() => void openConversation(c.id)}>
+      {inWorktree(c) && <span className="sess-wt" title={`在 worktree 里：${c.worktree!.branch}`}><Icon name="layers" size={13} /></span>}
+      <span className="t">{c.title}</span>
+      {waiting ? <i className="dot wait" title="等你审批" /> : running ? <i className="spin" title="正在运行" /> : view?.status === 'error' ? <i className="dot bad" title="出错了" /> : <span className="when">{when(c.updatedAt)}</span>}
+      <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => {
+        e.stopPropagation();
+        const ask = inWorktree(c)
+          ? `删除对话「${c.title}」和它的 worktree？\n\nworktree 文件夹会被删掉；里面的改动先存到分支 ${c.worktree!.branch} 上，需要时还能找回。\n要保留改动到本地项目，请先点顶栏的“接手到本地”。`
+          : `删除对话「${c.title}」？\n只从 Claudex 的列表里删除，Claude Code 的会话记录还在。`;
+        if (confirm(ask)) void deleteConversation(c.id);
+      }}><Icon name="x" size={13} /></button>
+    </div>
+  );
+}
+
+/** 团队里的一个员工：点开看他的对话（每个活一个对话），可以和他新开一个对话 */
+function EmployeeRow({ projectPath, p, convs }: { projectPath: string; p: EmployeeProfile; convs: ConversationMeta[] }) {
+  const activeId = useStore(s => s.activeId);
+  const busy = useStore(s => convs.filter(c => { const v = s.convs[c.id]; return v && (v.status === 'running' || v.status === 'starting'); }).length);
+  const working = useStore(s => Object.values(s.tasks).filter(t => t.employeeId === p.id && t.projectPath === projectPath && t.status === 'running').length);
+  const { newEmployeeChat } = useStore.getState();
+  const [manual, setManual] = useState<boolean | null>(null);
+  const open = manual ?? convs.some(c => c.id === activeId);
+  const n = Math.max(busy, working);
+  return (
+    <div className="emp">
+      <div className={`emp-head${open ? ' open' : ''}`} data-testid="employee-item" data-employee={p.id} title={`${p.displayName}（${p.id}）：${p.description}`} onClick={() => setManual(!open)}>
+        <span className="avatar">{p.displayName.slice(0, 1)}</span>
+        <span className="t">{p.displayName}<small>{p.description}</small></span>
+        {n > 0 ? <span className="emp-busy" title={`${n} 个活在做`}><i className="spin" />{n > 1 ? n : ''}</span> : <span className="when">{convs.length || ''}</span>}
+      </div>
+      {open && (
+        <div className="emp-convs">
+          {convs.map(c => <ConvRow key={c.id} c={c} indent />)}
+          <div className="sess emp-sess new-chat" data-testid="employee-new-chat" onClick={() => void newEmployeeChat(projectPath, p.id)}><Icon name="plus" size={13} /><span className="t">和{p.displayName}新开一个对话</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const app = useStore(s => s.app);
-  const convs = useStore(s => s.convs);
+  const team = useStore(s => s.team);
   const activeId = useStore(s => s.activeId);
   const activeProject = useStore(s => s.activeProject);
-  const { startDraft, openConversation, pickProject, removeProject, deleteConversation, setTheme } = useStore.getState();
+  const { startDraft, pickProject, removeProject, setTheme } = useStore.getState();
   if (!app) return null;
   const theme = app.prefs.theme;
 
@@ -46,7 +96,12 @@ export function Sidebar() {
       </div>
       <div className="tree">
         {app.projects.map(p => {
-          const list = app.conversations.filter(c => c.projectPath === p.path).sort((a, b) => b.updatedAt - a.updatedAt);
+          const all = app.conversations.filter(c => c.projectPath === p.path).sort((a, b) => b.updatedAt - a.updatedAt);
+          const mains = all.filter(c => !c.employee);
+          const profiles = team[p.path] ?? [];
+          // 员工的对话；档案被删掉的员工也列出来（对话还在）
+          const ids = [...new Set([...profiles.map(e => e.id), ...all.filter(c => c.employee).map(c => c.employee!.id)])];
+          const people: EmployeeProfile[] = ids.map(id => profiles.find(e => e.id === id) ?? { id, displayName: id, description: '（档案已删除）', prompt: '' });
           const isActiveDraft = !activeId && activeProject === p.path;
           return (
             <div className="proj" key={p.path}>
@@ -57,25 +112,15 @@ export function Sidebar() {
                   <button className="ibtn sm" title="从列表移除这个项目（不删文件）" onClick={e => { e.stopPropagation(); if (confirm(`从列表移除项目「${p.name}」？\n只是不在 Claudex 里显示，不会删除任何文件。`)) void removeProject(p.path); }}><Icon name="trash" size={14} /></button>
                 </span>
               </div>
-              {list.map(c => {
-                const view = convs[c.id];
-                const running = view && (view.status === 'running' || view.status === 'starting');
-                const waiting = view && pendingApprovals(view.timeline) > 0;
-                return (
-                  <div key={c.id} className={`sess${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" data-id={c.id} onClick={() => void openConversation(c.id)}>
-                    {inWorktree(c) && <span className="sess-wt" title={`在 worktree 里：${c.worktree!.branch}`}><Icon name="layers" size={13} /></span>}
-                    <span className="t">{c.title}</span>
-                    {waiting ? <i className="dot wait" title="等你审批" /> : running ? <i className="spin" title="正在运行" /> : view?.status === 'error' ? <i className="dot bad" title="出错了" /> : <span className="when">{when(c.updatedAt)}</span>}
-                    <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => {
-                      e.stopPropagation();
-                      const ask = inWorktree(c)
-                        ? `删除对话「${c.title}」和它的 worktree？\n\nworktree 文件夹会被删掉；里面的改动先存到分支 ${c.worktree!.branch} 上，需要时还能找回。\n要保留改动到本地项目，请先点顶栏的“接手到本地”。`
-                        : `删除对话「${c.title}」？\n只从 Claudex 的列表里删除，Claude Code 的会话记录还在。`;
-                      if (confirm(ask)) void deleteConversation(c.id);
-                    }}><Icon name="x" size={13} /></button>
-                  </div>
-                );
-              })}
+              {mains.map(c => <ConvRow key={c.id} c={c} />)}
+              <div className="team-label" data-testid="team-label">
+                <Icon name="users" size={13} /><span>团队{people.length ? ` · ${people.length}` : ''}</span>
+                <button className="ibtn sm" title="招一个新员工" data-testid="hire-button" onClick={() => useStore.setState({ dialog: { kind: 'employee', projectPath: p.path, profile: null } })}><Icon name="plus" size={13} /></button>
+              </div>
+              {people.length === 0 && <div className="team-empty">还没有员工。和主对话聊任务时，它会提议招人；也可以点 + 自己招</div>}
+              {people.map(e => (
+                <EmployeeRow key={e.id} projectPath={p.path} p={e} convs={all.filter(c => c.employee?.id === e.id)} />
+              ))}
             </div>
           );
         })}

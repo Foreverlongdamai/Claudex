@@ -1,12 +1,12 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, CommitRequest, CommitResult, CondaInfo, ConvEvent, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  AppState, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, Verdict, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { convCwd } from '@shared/conv';
 import { MODES } from './modes';
-import { addApproval, addNotice, addUser, applySdk, emptyTimeline, resolveApproval, type Timeline } from './timeline';
+import { addApproval, addInjected, addNotice, addUser, applySdk, emptyTimeline, resolveApproval, type Timeline } from './timeline';
 
 const api = window.claudex;
 
@@ -17,6 +17,8 @@ export interface ConvView {
   timeline: Timeline;
   usage?: UsageInfo;
   loaded: boolean;
+  /** 员工的对话：负责人审批过的操作（工具调用 ID → 结果） */
+  judged?: Record<string, Verdict>;
 }
 
 export type Dialog =
@@ -26,6 +28,8 @@ export type Dialog =
   | { kind: 'settings' }
   | { kind: 'pr-branch'; cwd: string; message: string }
   | { kind: 'handoff'; convId: string }
+  /** 新建或修改员工档案；profile 为 null 是招新员工 */
+  | { kind: 'employee'; projectPath: string; profile: EmployeeProfile | null }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -109,6 +113,18 @@ interface UiState {
   /** 当前对话（或草稿）的项目里加一条提示 */
   notify(tone: 'ok' | 'error', text: string, detail?: string, link?: { label: string; url: string }): void;
   setDraftPlace(place: 'local' | 'worktree'): void;
+  // ---- 团队 ----
+  /** 项目路径 → 员工档案 */
+  team: Record<string, EmployeeProfile[]>;
+  /** 任务编号 → 任务 */
+  tasks: Record<string, TeamTask>;
+  loadTeam(projectPath: string): Promise<void>;
+  /** 打开员工：他最近的对话，没有就新开一个 */
+  openEmployee(projectPath: string, employeeId: string): Promise<void>;
+  /** 和员工新开一个对话 */
+  newEmployeeChat(projectPath: string, employeeId: string): Promise<void>;
+  saveEmployee(projectPath: string, profile: EmployeeProfile, isNew: boolean): Promise<boolean>;
+  deleteEmployee(projectPath: string, id: string): Promise<void>;
   /** 本机的 conda（没装就是 available: false） */
   conda: CondaInfo | null;
   loadConda(force?: boolean): Promise<void>;
@@ -161,6 +177,8 @@ export const useStore = create<UiState>((set, get) => {
     commitToken: 0,
     gitBusy: null,
     conda: null,
+    team: {},
+    tasks: {},
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -171,6 +189,7 @@ export const useStore = create<UiState>((set, get) => {
       set({ app, env, ready: true, activeProject: firstProject, draft: firstProject ? { mode: app.prefs.defaultMode, model: app.prefs.defaultModel, effort: app.prefs.defaultEffort } : null });
       if (firstProject) void get().refreshBranch(firstProject);
       void get().loadConda();
+      for (const p of app.projects) void get().loadTeam(p.path);
       // 模型列表要起一个 Claude Code 进程去查，放后台
       api.listModels()
         .then(models => set({ models, modelsError: null }))
@@ -178,6 +197,14 @@ export const useStore = create<UiState>((set, get) => {
     },
 
     onEvent(ev) {
+      if (ev.kind === 'task') {
+        set(s => ({ tasks: { ...s.tasks, [ev.task.id]: ev.task } }));
+        return;
+      }
+      if (ev.kind === 'team') {
+        void get().loadTeam(ev.projectPath);
+        return;
+      }
       if (ev.kind === 'meta') {
         upsertMetaInApp(ev.meta);
         patchConv(ev.convId, () => ({ meta: ev.meta }));
@@ -212,6 +239,15 @@ export const useStore = create<UiState>((set, get) => {
           patchConv(ev.convId, c => ({ meta: { ...c.meta, mode: ev.mode } }));
           get().toast(MODES[ev.mode].toast);
           break;
+        case 'injected':
+          patchConv(ev.convId, c => ({ timeline: addInjected(c.timeline, ev.text) }));
+          break;
+        case 'notice':
+          patchConv(ev.convId, c => ({ timeline: addNotice(c.timeline, ev.tone, ev.text, ev.detail) }));
+          break;
+        case 'judged':
+          patchConv(ev.convId, c => ({ judged: { ...c.judged, [ev.toolUseId]: ev.verdict } }));
+          break;
         case 'project-env':
           set(s => (s.app ? { app: { ...s.app, projects: s.app.projects.map(p => (p.path === ev.projectPath ? { ...p, condaEnv: ev.env } : p)) } } : s));
           patchConv(ev.convId, c => ({
@@ -243,7 +279,7 @@ export const useStore = create<UiState>((set, get) => {
         const o = await api.openConversation(id);
         let timeline = o.history.reduce<Timeline>((t, m) => applySdk(t, m, false), emptyTimeline());
         for (const r of o.pending) timeline = addApproval(timeline, r);
-        set(s => ({ convs: { ...s.convs, [id]: { meta: o.meta, status: o.status, timeline, usage: o.usage, loaded: true } } }));
+        set(s => ({ convs: { ...s.convs, [id]: { meta: o.meta, status: o.status, timeline, usage: o.usage, loaded: true, judged: o.judged } } }));
       }
       const meta = get().convs[id].meta;
       set({ activeId: id, activeProject: meta.projectPath, draft: null });
@@ -266,6 +302,7 @@ export const useStore = create<UiState>((set, get) => {
       if (d?.kind !== 'trust') return;
       const app = await api.addProject(d.check.path);
       set({ app, dialog: null });
+      void get().loadTeam(d.check.path);
       get().startDraft(d.check.path);
       get().toast(`已添加项目 ${d.check.name}`);
     },
@@ -456,6 +493,55 @@ export const useStore = create<UiState>((set, get) => {
       }
       await get().refreshBranch(cwd);
       set(s => ({ gitTick: s.gitTick + 1 }));
+    },
+
+    async loadTeam(projectPath) {
+      try {
+        const [profiles, tasks] = await Promise.all([api.listEmployees(projectPath), api.listTasks(projectPath)]);
+        set(s => ({ team: { ...s.team, [projectPath]: profiles }, tasks: { ...s.tasks, ...Object.fromEntries(tasks.map(t => [t.id, t])) } }));
+      } catch {
+        // 项目文件夹不在了之类，不影响别的
+      }
+    },
+
+    async openEmployee(projectPath, employeeId) {
+      const convs = get().app?.conversations.filter(c => c.projectPath === projectPath && c.employee?.id === employeeId) ?? [];
+      const latest = convs.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (latest) await get().openConversation(latest.id);
+      else await get().newEmployeeChat(projectPath, employeeId);
+    },
+
+    async newEmployeeChat(projectPath, employeeId) {
+      try {
+        const meta = await api.newEmployeeConversation(projectPath, employeeId);
+        upsertMetaInApp(meta);
+        set(s => ({ convs: { ...s.convs, [meta.id]: { meta, status: 'new', timeline: emptyTimeline(), loaded: true } } }));
+        await get().openConversation(meta.id);
+      } catch (e) {
+        get().toast(`打不开：${errText(e)}`);
+      }
+    },
+
+    async saveEmployee(projectPath, profile, isNew) {
+      try {
+        const list = await api.saveEmployee(projectPath, profile, isNew);
+        set(s => ({ team: { ...s.team, [projectPath]: list } }));
+        get().toast(isNew ? `已招聘「${profile.displayName}」` : `已保存「${profile.displayName}」的档案`);
+        return true;
+      } catch (e) {
+        get().toast(`保存失败：${errText(e)}`);
+        return false;
+      }
+    },
+
+    async deleteEmployee(projectPath, id) {
+      try {
+        const list = await api.deleteEmployee(projectPath, id);
+        set(s => ({ team: { ...s.team, [projectPath]: list }, dialog: null }));
+        get().toast('已删除档案（他的对话和长期记忆还在）');
+      } catch (e) {
+        get().toast(`删除失败：${errText(e)}`);
+      }
     },
 
     async loadConda(force) {

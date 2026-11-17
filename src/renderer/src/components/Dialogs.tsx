@@ -4,6 +4,7 @@ import { EFFORTS, type Effort, type ModeId, type ShellInfo, type ShellKind } fro
 import { MODES, MODE_ORDER } from '../modes';
 import { useStore } from '../store';
 import { Icon } from './Icon';
+import { EmployeeEditor } from './Team';
 
 const EFFORT_LABEL: Record<Effort, string> = { low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' };
 
@@ -229,5 +230,6 @@ export function Dialogs() {
     case 'settings': return <SettingsDialog />;
     case 'pr-branch': return <PrBranchDialog cwd={d.cwd} message={d.message} />;
     case 'handoff': return <HandoffDialog convId={d.convId} />;
+    case 'employee': return <Modal wide onClose={useStore.getState().closeDialog}><EmployeeEditor projectPath={d.projectPath} profile={d.profile} /></Modal>;
   }
 }

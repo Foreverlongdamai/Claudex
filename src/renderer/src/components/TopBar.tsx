@@ -18,10 +18,18 @@ export function TopBar() {
   const changed = git?.repo ? git.files.length : 0;
   const wt = conv && inWorktree(conv.meta) ? conv.meta.worktree! : null;
   const running = conv?.status === 'running' || conv?.status === 'starting';
+  const employee = useStore(s => (conv?.meta.employee ? (s.team[conv.meta.projectPath] ?? []).find(e => e.id === conv.meta.employee!.id) : undefined));
+  const empId = conv?.meta.employee?.id;
   return (
     <div className="topbar drag">
       <span className="tt">{conv ? conv.meta.title : project ? '新对话' : 'Claudex'}</span>
       {project && <span className="tp">{project.name}</span>}
+      {empId && (
+        <button className="emp-chip" data-testid="employee-chip" title={employee ? `员工档案：${employee.description}` : '档案已删除'}
+          onClick={() => employee && useStore.setState({ dialog: { kind: 'employee', projectPath: conv!.meta.projectPath, profile: employee } })}>
+          <Icon name="users" size={13} />员工 · {employee?.displayName ?? empId}{employee && <span className="emp-chip-act">档案</span>}
+        </button>
+      )}
       {wt && <span className="wt-chip" title={`这个对话在独立的 worktree 里改代码，不影响本地项目文件夹：\n${wt.path}`} data-testid="wt-chip"><Icon name="layers" size={13} />{wt.branch}</span>}
       {mode === 'bypassPermissions' && <span className="mode-pill bypass"><Icon name="unlock" size={13} />完全访问</span>}
       {mode === 'skills' && <span className="mode-pill env"><Icon name="wrench" size={13} />{MODES.skills.label}模式</span>}

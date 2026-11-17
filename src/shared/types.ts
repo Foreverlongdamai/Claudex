@@ -1,5 +1,6 @@
 // 主进程、preload、界面三方共用的类型。界面能调用什么、主进程会推什么事件，都以这里为准。
 import type { DiffFile } from './gitDiff';
+import type { EmployeeProfile } from './profile';
 
 export type { DiffFile, DiffLine } from './gitDiff';
 
@@ -43,6 +44,37 @@ export interface ConversationMeta {
   effort: Effort;
   /** 在独立的 worktree 里干活（C3）；没有就是直接在项目文件夹里 */
   worktree?: WorktreeInfo;
+  /** 员工的对话（团队功能）；没有就是主对话（老板） */
+  employee?: { id: string };
+  /** 员工在派活的主对话的目录里干活（主对话在 worktree 里时就是那个 worktree） */
+  workdir?: string;
+}
+
+export type { EmployeeProfile, EmployeeMode, MemoryScope } from './profile';
+
+/** 负责人对员工操作的审批结果 */
+export interface Verdict {
+  allow: boolean;
+  reason: string;
+  what: string;
+}
+
+export interface TeamTask {
+  /** 任务编号，显示成 #12 */
+  id: string;
+  projectPath: string;
+  employeeId: string;
+  employeeName: string;
+  /** 员工做这个活的对话 */
+  convId: string;
+  /** 派活的主对话 */
+  fromConvId: string;
+  title: string;
+  status: 'running' | 'done' | 'failed';
+  createdAt: number;
+  endedAt?: number;
+  /** 员工交回的汇报 */
+  result?: string;
 }
 
 export interface WorktreeInfo {
@@ -312,7 +344,17 @@ export type ConvEvent =
   | { kind: 'blocked'; convId: string; toolName: string; rule: string; detail: string }
   | { kind: 'mode'; convId: string; mode: ModeId }
   /** Claude 用 set_project_env 登记了项目环境 */
-  | { kind: 'project-env'; convId: string; projectPath: string; env: CondaEnv };
+  | { kind: 'project-env'; convId: string; projectPath: string; env: CondaEnv }
+  /** Claudex 替用户发进对话的消息（派给员工的任务、员工交回的结果），界面要显示出来 */
+  | { kind: 'injected'; convId: string; text: string }
+  /** 对话里加一条提示 */
+  | { kind: 'notice'; convId: string; tone: 'info' | 'ok' | 'error'; text: string; detail?: string }
+  /** 负责人替用户审批了员工的一个操作（显示在那一行活动记录上） */
+  | { kind: 'judged'; convId: string; toolUseId: string; verdict: Verdict }
+  /** 任务开始、完成 */
+  | { kind: 'task'; task: TeamTask }
+  /** 项目的员工档案变了 */
+  | { kind: 'team'; projectPath: string };
 
 export interface OpenedConversation {
   meta: ConversationMeta;
@@ -322,6 +364,8 @@ export interface OpenedConversation {
   /** 还在等回答的审批（切换对话再切回来时用） */
   pending: PermissionRequest[];
   usage?: UsageInfo;
+  /** 员工的对话：负责人审批过的操作（工具调用 ID → 结果） */
+  judged?: Record<string, Verdict>;
 }
 
 /** preload 暴露给界面的接口：window.claudex */
@@ -344,6 +388,15 @@ export interface ClaudexApi {
   condaInfo(force?: boolean): Promise<CondaInfo>;
   /** 指定项目的 conda 环境（prefix 为 null 表示不指定，需要时让 Claude 来选） */
   setProjectEnv(projectPath: string, prefix: string | null): Promise<AppState>;
+  // ---- 团队（老板-员工） ----
+  listEmployees(projectPath: string): Promise<EmployeeProfile[]>;
+  /** 新建或修改员工档案（写到项目的 .claude/agents/<编号>.md） */
+  saveEmployee(projectPath: string, profile: EmployeeProfile, isNew: boolean): Promise<EmployeeProfile[]>;
+  /** 删掉员工档案（长期记忆和他的对话保留） */
+  deleteEmployee(projectPath: string, id: string): Promise<EmployeeProfile[]>;
+  listTasks(projectPath: string): Promise<TeamTask[]>;
+  /** 和某个员工开一个新对话（用户直接找他聊） */
+  newEmployeeConversation(projectPath: string, employeeId: string): Promise<ConversationMeta>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

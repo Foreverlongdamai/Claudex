@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import type { Item } from '../timeline';
 import { describeTool, diffStat, editDiff, relPath, todosOf, type DiffLine, type PathBase } from '../toolView';
 import { FileChip } from './FileChip';
+import { AssignRow, ProfileApproval, ResultCard, TaskCard } from './Team';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
 
@@ -83,11 +84,15 @@ function Todos({ item }: { item: ToolItem }) {
   );
 }
 
-function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: PathBase }) {
+function ToolRow({ item, projectPath, convId }: { item: ToolItem; projectPath: PathBase; convId: string }) {
+  const verdict = useStore(s => s.convs[convId]?.judged?.[item.id]);
   if (item.name === 'TodoWrite' && todosOf(item)) return <Todos item={item} />;
+  if (item.name === 'mcp__claudex__assign_task') return <AssignRow input={item.input} output={item.output} running={item.status === 'running'} />;
   const v = describeTool(item, projectPath);
   const running = item.status === 'running';
-  const tags = item.status === 'denied' ? <span className="tag deny">已拒绝</span> : item.status === 'error' ? <span className="tag fail">出错</span> : null;
+  // 员工的操作由负责人替用户审批：标在这一行上，鼠标移上去看理由
+  const judgedTag = verdict ? <span className={`tag ${verdict.allow ? 'judged' : 'deny'}`} data-testid="judged-tag" title={verdict.reason}>{verdict.allow ? '负责人批准' : '负责人拒绝'}</span> : null;
+  const tags = <>{judgedTag}{item.status === 'denied' && !verdict ? <span className="tag deny">已拒绝</span> : item.status === 'error' ? <span className="tag fail">出错</span> : null}</>;
   const took = item.endedAt && item.endedAt - item.startedAt > 2000 ? `${secs(item.endedAt - item.startedAt)} 秒` : undefined;
   const meta = [v.meta, took].filter(Boolean).join(' · ') || undefined;
   let body: ReactNode = null;
@@ -131,6 +136,8 @@ function toolTitle(r: PermissionRequest): string {
     case 'Write': return 'Claude 想写入文件';
     case 'WebFetch': return 'Claude 想读取网页';
     case 'WebSearch': return 'Claude 想搜索网页';
+    case 'mcp__claudex__hire_employee': return '招新员工';
+    case 'mcp__claudex__update_employee': return '修改员工档案';
     default: return r.toolName.startsWith('mcp__') ? `Claude 想调用 ${r.toolName.split('__')[1]} 的工具` : `Claude 想使用 ${r.displayName ?? r.toolName}`;
   }
 }
@@ -282,6 +289,7 @@ function ApprovalView({ convId, item, projectPath }: { convId: string; item: App
   if (item.resolved) return <ResolvedApproval item={item} />;
   if (item.request.toolName === 'ExitPlanMode') return <PlanApproval convId={convId} item={item} />;
   if (item.request.toolName === 'AskUserQuestion') return <QuestionCard convId={convId} item={item} />;
+  if (item.request.toolName === 'mcp__claudex__hire_employee' || item.request.toolName === 'mcp__claudex__update_employee') return <ProfileApproval convId={convId} request={item.request} />;
   return <GenericApproval convId={convId} item={item} projectPath={projectPath} />;
 }
 
@@ -309,7 +317,7 @@ function ItemView({ item, convId, projectPath }: { item: Item; convId: string; p
     case 'thinking':
       return <ThinkingRow item={item} />;
     case 'tool':
-      return <ToolRow item={item} projectPath={projectPath} />;
+      return <ToolRow item={item} projectPath={projectPath} convId={convId} />;
     case 'approval':
       return <ApprovalView convId={convId} item={item} projectPath={projectPath} />;
     case 'notice':
@@ -325,6 +333,10 @@ function ItemView({ item, convId, projectPath }: { item: Item; convId: string; p
       );
     case 'turn-end':
       return item.durationMs > 0 ? <div className="turn-end">用时 {secs(item.durationMs)} 秒</div> : null;
+    case 'task':
+      return <TaskCard item={item} />;
+    case 'task-result':
+      return <ResultCard item={item} />;
   }
 }
 

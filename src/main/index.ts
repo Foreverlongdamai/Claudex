@@ -17,6 +17,7 @@ import { convCwd, inWorktree } from '../shared/conv';
 import { createSdkMcpServer, tool, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import * as conda from './conda';
+import { TeamManager } from './team';
 import type { CondaInfo, ConversationMeta } from '../shared/types';
 import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
@@ -35,10 +36,12 @@ let store: Store;
 let manager: SessionManager;
 let terminals: TerminalManager;
 let review: ReviewManager;
+let team: TeamManager;
 
 const emit = (ev: ConvEvent) => {
   win?.webContents.send(EVENT_CHANNEL, ev);
   review?.onConvEvent(ev); // 一轮结束时给“上一轮”拍结束快照
+  team?.onConvEvent(ev); // 员工的一轮结束：任务完成，结果送回派活的主对话
 };
 const gitBash = () => detectGitBash(store.state.prefs.gitBashPath);
 /** 撤销新文件：移到回收站，不直接删（自动化测试设 CLAUDEX_TRASH_DIR，移到那个目录，不碰系统回收站） */
@@ -70,19 +73,24 @@ function envFor(projectPath?: string): Record<string, string | undefined> {
   return p?.condaEnv ? conda.activate(env, p.condaEnv, condaState?.install ?? null) : env;
 }
 
+/** 加在 Claude Code 默认系统提示后面的：项目环境的说明 + 团队（主对话是负责人，员工有自己的协作规矩） */
 function systemAppend(meta: ConversationMeta): string | null {
   const p = store.project(meta.projectPath);
-  if (!condaState && !p?.condaEnv) return null;
-  return conda.envPrompt(p?.name ?? path.basename(meta.projectPath), p?.condaEnv, condaState ?? { available: true, root: null, envs: [] });
+  const env = !condaState && !p?.condaEnv ? null
+    : conda.envPrompt(p?.name ?? path.basename(meta.projectPath), p?.condaEnv, condaState ?? { available: true, root: null, envs: [] });
+  const teamPart = meta.employee ? team.employeePrompt(meta) : team.bossPrompt(meta);
+  return [env, teamPart].filter(Boolean).join('\n\n') || null;
 }
 
-/** Claudex 提供给 Claude 的工具：登记项目环境 */
+/** Claudex 提供给 Claude 的工具：主对话有团队工具和登记项目环境；员工没有 */
 function claudexMcp(meta: ConversationMeta): Record<string, McpServerConfig> | null {
-  if (!condaState?.available) return null;
-  const server = createSdkMcpServer({
-    name: 'claudex',
-    version: app.getVersion(),
-    tools: [
+  if (meta.employee) return null;
+  const tools = [...team.bossTools(meta), ...(condaState?.available ? envTools(meta) : [])];
+  return { claudex: createSdkMcpServer({ name: 'claudex', version: app.getVersion(), tools }) };
+}
+
+function envTools(meta: ConversationMeta) {
+  return [
       tool(
         'set_project_env',
         '把一个 conda 环境登记为本项目的 Python 环境。登记以后，本项目所有的对话（包括 worktree 里的）和终端都会自动用它（放在 PATH 最前面）。参数是 conda env list 里的环境名，或者环境的完整路径。',
@@ -106,9 +114,16 @@ function claudexMcp(meta: ConversationMeta): Record<string, McpServerConfig> | n
           };
         }
       )
-    ]
-  });
-  return { claudex: server };
+  ];
+}
+
+/** Claudex 替用户往对话里发消息（派给员工的任务、员工交回的结果）：界面上也显示出来 */
+async function sendInternal(convId: string, text: string): Promise<void> {
+  const meta = store.conversation(convId);
+  if (!meta) throw new Error('对话不存在');
+  emit({ kind: 'injected', convId, text });
+  await review.turnStart(convId, convCwd(meta));
+  await manager.send(convId, text);
 }
 
 /** 删 worktree 之前：关掉这个对话的 Claude 进程和终端、停止监视（Windows 上有程序占着文件夹就删不掉） */
@@ -212,7 +227,7 @@ function registerIpc(): void {
       emit({ kind: 'meta', convId: id, meta: next });
       return { ...r, branch: meta.worktree.branch, meta: next };
     },
-    openConversation: id => manager.open(id),
+    openConversation: async id => ({ ...(await manager.open(id)), judged: team.judgedFor(id) }),
     deleteConversation: async id => {
       const meta = store.conversation(id);
       if (meta?.worktree && inWorktree(meta)) {
@@ -227,6 +242,7 @@ function registerIpc(): void {
       }
       manager.delete(id);
       review.forget(id);
+      team.forget(id);
       terminals.closeKeys(k => k === id);
       store.removeConversation(id);
       return store.state;
@@ -235,6 +251,7 @@ function registerIpc(): void {
       // 先给“上一轮”拍开始快照
       const meta = store.conversation(id);
       if (meta) await review.turnStart(id, convCwd(meta));
+      team.onUserSend(id); // 用户直接在员工对话里发的消息，不算任务
       return manager.send(id, text, images, files);
     },
     interrupt: async id => { await manager.interrupt(id); },
@@ -289,6 +306,16 @@ function registerIpc(): void {
       }
       manager.markProjectStale(p);
       return store.state;
+    },
+    // ---- 团队 ----
+    listEmployees: async p => team.listProfiles(p),
+    saveEmployee: async (p, profile, isNew) => { team.saveProfile(p, profile, isNew); return team.listProfiles(p); },
+    deleteEmployee: async (p, id) => { team.deleteProfile(p, id); return team.listProfiles(p); },
+    listTasks: async p => team.listTasks(p),
+    newEmployeeConversation: async (p, id) => {
+      const profile = team.findProfile(p, id);
+      if (!profile) throw new Error(`找不到员工「${id}」`);
+      return team.newEmployeeConversation(p, profile);
     }
   };
   for (const m of API_METHODS) {
@@ -313,6 +340,9 @@ if (!app.requestSingleInstanceLock()) {
       env: meta => envFor(meta?.projectPath),
       systemAppend,
       extraMcp: claudexMcp,
+      agentOptions: meta => team.agentOptions(meta),
+      writeGuard: (meta, toolName, input) => team.writeGuard(meta, toolName, input),
+      approve: (meta, request) => team.approve(meta, request),
       blacklist: () => store.state.prefs.blacklist,
       disabledMcp,
       emit,
@@ -324,6 +354,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     void refreshConda().catch(e => log(`查 conda 失败：${e instanceof Error ? e.message : e}`));
     review = new ReviewManager(app.getPath('userData'), ev => win?.webContents.send(GIT_CHANNEL, ev), log);
+    team = new TeamManager(app.getPath('userData'), { store, send: sendInternal, emit, env: p => envFor(p), isBusy: id => manager.isBusy(id), log });
     registerIpc();
     createWindow();
     log(`Claudex ${app.getVersion()} 启动；Git Bash：${gitBash().path ?? '没找到'}`);
@@ -333,6 +364,7 @@ if (!app.requestSingleInstanceLock()) {
     manager?.closeAll();
     terminals?.closeAll();
     review?.close();
+    team?.saveNow();
     store?.saveNow();
   });
 }

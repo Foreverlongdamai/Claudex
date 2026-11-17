@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   query,
+  type AgentDefinition,
   type CanUseTool,
   type HookCallback,
   type McpServerConfig,
@@ -32,8 +33,14 @@ export interface SessionDeps {
   env: (meta?: ConversationMeta) => Record<string, string | undefined>;
   /** 加在 Claude Code 默认系统提示后面的内容（项目环境的说明） */
   systemAppend: (meta: ConversationMeta) => string | null;
-  /** Claudex 自己提供给 Claude 的工具（set_project_env 等） */
+  /** Claudex 自己提供给 Claude 的工具（set_project_env、团队工具等） */
   extraMcp: (meta: ConversationMeta) => Record<string, McpServerConfig> | null;
+  /** 员工的对话：以这个员工的身份运行（agent + agents 选项） */
+  agentOptions: (meta: ConversationMeta) => { agent: string; agents: Record<string, AgentDefinition> } | null;
+  /** 改文件前的检查（只读员工只能写自己的记忆目录）：不允许时返回原因 */
+  writeGuard: (meta: ConversationMeta, toolName: string, input: Record<string, unknown>) => string | null;
+  /** 员工做任务时的审批交给负责人：返回 null 表示照常问用户 */
+  approve: (meta: ConversationMeta, request: PermissionRequest) => Promise<PermissionResult | null>;
   blacklist: () => BlacklistRule[];
   disabledMcp: (projectPath: string) => string[];
   emit: (ev: ConvEvent) => void;
@@ -91,6 +98,8 @@ function describeSuggestions(suggestions?: PermissionUpdate[]): string | undefin
 }
 
 const normFile = (p: string) => path.resolve(p).toLowerCase();
+/** 要用户确认的 Claudex 工具：招人、改档案（弹可以修改的档案卡片） */
+const CONFIRM_TOOLS = ['mcp__claudex__hire_employee', 'mcp__claudex__update_employee'];
 
 function makeTitle(text: string): string {
   const line = text.split(/\r?\n/).map(s => s.trim()).find(Boolean) ?? '新对话';
@@ -140,9 +149,11 @@ export class ConvSession {
     this.stale = false;
     const append = this.deps.systemAppend(meta);
     const mcp = this.deps.extraMcp(meta);
+    const agent = this.deps.agentOptions(meta);
     const q = query({
       prompt: input,
       options: {
+        ...(agent ?? {}), // 员工的对话：整个会话以这个员工的身份运行（他的角色提示词、工具、记忆）
         cwd: convCwd(meta), // 在 worktree 里的对话就在 worktree 里干活（C3）
         // 用 Claude Code 自己的默认系统提示（SDK 不传时是空的，见 spikes/c3/README.md），后面加上项目环境的说明；
         // snapshot: false：每次请求重新生成，项目环境改了，续接的旧对话也能看到
@@ -156,7 +167,7 @@ export class ConvSession {
         includePartialMessages: true,
         env: this.deps.env(meta),
         canUseTool: this.canUseTool,
-        hooks: { PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [this.guardHook] }] },
+        hooks: { PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [this.guardHook] }, { matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [this.writeHook] }] },
         settings: { disabledMcpjsonServers: this.deps.disabledMcp(meta.projectPath) },
         stderr: (d: string) => this.deps.log(`[${meta.id.slice(0, 8)}] ${d.trimEnd()}`)
       }
@@ -274,8 +285,8 @@ export class ConvSession {
   }
 
   private canUseTool: CanUseTool = async (toolName, input, opts) => {
-    // Claudex 自己提供的工具（登记项目环境等）只改 Claudex 的设置，不用问
-    if (toolName.startsWith('mcp__claudex__')) return { behavior: 'allow', updatedInput: input };
+    // Claudex 自己提供的工具（登记项目环境、查看团队、派活）不用问；招人和改档案要用户确认（弹档案卡片）
+    if (toolName.startsWith('mcp__claudex__') && !CONFIRM_TOOLS.includes(toolName)) return { behavior: 'allow', updatedInput: input };
     // 读用户自己拖进来的附件：用户的意思就是让 Claude 读，直接放行（项目目录外的文件 Claude Code 默认会问）
     if (toolName === 'Read' && this.isAttached((input as { file_path?: unknown }).file_path)) return { behavior: 'allow', updatedInput: input };
     // Skills 配置模式：按规则自动放行或拒绝；提问和计划仍然要用户回答
@@ -292,6 +303,11 @@ export class ConvSession {
       canAlways: !!opts.suggestions?.length && !opts.suppressAlwaysAllowRule,
       alwaysLabel: describeSuggestions(opts.suggestions)
     };
+    // 员工在做任务：交给负责人判断（用户选的“老板替你批”）；用户直接在和员工聊时照常问用户
+    if (this.meta.employee) {
+      const judged = await this.deps.approve(this.meta, request);
+      if (judged) return judged;
+    }
     return new Promise<PermissionResult>(resolve => {
       // 用户点了停止、或者进程要关：SDK 会发 abort，审批卡片要收回
       const onAbort = () => {
@@ -349,6 +365,13 @@ export class ConvSession {
         permissionDecisionReason: `Claudex 保底黑名单拦截：${hit.rule.label}。不要尝试用其他命令绕过，请向用户说明情况。`
       }
     };
+  };
+
+  private writeHook: HookCallback = async input => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    const why = this.deps.writeGuard(this.meta, input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+    if (!why) return {};
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: why } };
   };
 
   /** 关掉进程（回收内存或 App 退出）。对话记录还在，下次发消息会自动续接。 */

@@ -4,7 +4,7 @@
 
 Claudex 自己不实现智能体：实际干活的是本机的 Claude Code（通过官方的 Claude Agent SDK 调起），所以你的 Skills、MCP、CLAUDE.md、`~/.claude/settings.json` 里的中转 API 配置都会照常生效。
 
-> 当前进度：M1 第一步（能用的聊天）+ C1 内置终端 + C2 Git 审查和提交 + C3 worktree 并行对话 + 项目环境（conda）。方案、决定和进度见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，技术验证报告见 [docs/m0-report.md](docs/m0-report.md)。
+> 当前进度：M1 第一步（能用的聊天）+ C1 内置终端 + C2 Git 审查和提交 + C3 worktree 并行对话 + 项目环境（conda）+ 团队（老板-员工）。方案、决定和进度见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，技术验证报告见 [docs/m0-report.md](docs/m0-report.md)。
 
 ## 使用
 
@@ -32,6 +32,7 @@ npm run dev      # 开发模式（改代码后界面自动刷新）
 - 内置终端：顶栏「终端」按钮或 Ctrl+` 打开；每个对话有自己的终端，就在项目目录里；可选 PowerShell、Git Bash、命令提示符；Ctrl+V 粘贴，选中文字时 Ctrl+C 复制；结束终端会把里面跑着的程序一起结束
 - 改动面板（Git 审查和提交）：顶栏「改动」按钮显示未提交改动的行数，点开按“上一轮 / 未暂存 / 已暂存 / 整个分支”看改动；暂存、撤销（新文件进回收站）；鼠标移到某一行点 + 写评论发给 Claude；写提交说明或留空让 Claude 写；提交、推送、开 PR（用 gh）
 - worktree 并行对话：新对话可以在输入框下面选“新 worktree”，在项目的独立副本里改代码，几个对话同时改同一个项目互不干扰；改完点顶栏的“接手到本地”，改动搬回项目文件夹成为未提交的改动
+- 团队（老板-员工）：主对话是负责人，和你沟通需求、把能并行的活派给员工；员工是项目里的专职 Claude，各有档案（角色提示词、能用的工具、模型、权限、预装 Skills、长期记忆），存在项目的 `.claude/agents/` 和 `.claude/agent-memory/` 里。派活不用等，员工每个活开一个新对话去做，做完结果自动送回主对话；员工要审批的操作由负责人判断；招人、改档案先弹卡片给你确认。左栏每个项目下面有“团队”，可以点开员工看他的对话、直接和他聊、改他的档案
 - 项目环境（conda）：输入框下面给项目指定一个 conda 环境，项目里所有对话和终端都用它；没指定时 Claude 需要 Python 会先找现有的环境、没有就新建，再登记成项目环境
 - 安全：新对话默认“询问”模式；保底黑名单（删除盘根或用户目录、强制推送、格式化磁盘、删除 ~/.claude）任何模式下都拦截；项目自带的 MCP 服务器第一次使用前先问你；添加带 hooks 的项目前先提醒
 
@@ -48,7 +49,7 @@ node tests/e2e/run.mjs 01,02,17,18,19,20,21,22,23,24,25   # 只跑指定的步�
 
 | 目录 | 内容 |
 |---|---|
-| `src/main/` | 主进程：窗口、IPC、对话进程管理（`claude/`）、保底黑名单和模式规则（`guard/`）、内置终端（`terminal.ts`）、Git 操作（`git.ts`）、“上一轮”快照和文件监视（`review.ts`）、worktree（`worktree.ts`）、项目的 conda 环境（`conda.ts`） |
+| `src/main/` | 主进程：窗口、IPC、对话进程管理（`claude/`）、保底黑名单和模式规则（`guard/`）、内置终端（`terminal.ts`）、Git 操作（`git.ts`）、“上一轮”快照和文件监视（`review.ts`）、worktree（`worktree.ts`）、项目的 conda 环境（`conda.ts`）、团队（`team.ts`） |
 | `src/preload/` | 把主进程能力安全地暴露给界面（`window.claudex`） |
 | `src/renderer/` | 界面（React）：状态在 `store.ts`，消息流整理在 `timeline.ts` |
 | `src/shared/` | 三方共用的类型和 IPC 通道 |

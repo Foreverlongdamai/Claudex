@@ -2,6 +2,7 @@
 // 实时对话：先收到逐字的 stream_event，再收到完整的 assistant 消息（每个内容块一条）；
 // 打开历史对话：只有完整消息（来自 getSessionMessages）。两种来源走同一套逻辑。
 import { splitAttachments } from '../../shared/attachments.ts'; // 相对路径：单元测试直接用 node 跑这个文件，不认 @shared 别名
+import { parseTeamMessage } from '../../shared/conv.ts';
 import type { PermissionRequest, SdkMessageLike } from '@shared/types';
 
 export type ToolStatus = 'running' | 'done' | 'error' | 'denied';
@@ -19,7 +20,11 @@ export type Item =
     }
   | { kind: 'approval'; id: string; request: PermissionRequest; resolved?: 'allow' | 'always' | 'deny' | 'cancelled'; note?: string }
   | { kind: 'notice'; id: string; tone: NoticeTone; text: string; detail?: string; link?: NoticeLink }
-  | { kind: 'turn-end'; id: string; durationMs: number; costUsd?: number; isError: boolean };
+  | { kind: 'turn-end'; id: string; durationMs: number; costUsd?: number; isError: boolean }
+  /** 团队：负责人派来的任务（员工的对话里） */
+  | { kind: 'task'; id: string; taskId: string; from: string; title: string; text: string }
+  /** 团队：员工交回的结果（主对话里） */
+  | { kind: 'task-result'; id: string; taskId: string; employee: string; name: string; status: string; title: string; text: string };
 
 export interface InitInfo {
   model: string;
@@ -82,6 +87,21 @@ const DENIED = /doesn't want to proceed|user rejected|用户拒绝|已取消|den
 
 export function addUser(t: Timeline, text: string, images: number, skillsMode: boolean, files: string[] = []): Timeline {
   return push(t, { kind: 'user', id: uid('user'), text, images, skillsMode, files });
+}
+
+/** 团队消息（任务、结果）变成卡片；不是团队消息返回 null */
+function teamItem(text: string): Item | null {
+  const m = parseTeamMessage(text);
+  if (!m) return null;
+  const a = m.attrs;
+  return m.kind === 'task'
+    ? { kind: 'task', id: uid('task'), taskId: a.id ?? '', from: a.from ?? '', title: a.title ?? '', text: m.body }
+    : { kind: 'task-result', id: uid('result'), taskId: a.id ?? '', employee: a.employee ?? '', name: a.name ?? '', status: a.status ?? 'done', title: a.title ?? '', text: m.body };
+}
+
+/** Claudex 替用户发进对话的消息（派给员工的任务、员工交回的结果） */
+export function addInjected(t: Timeline, text: string): Timeline {
+  return push(t, teamItem(text) ?? { kind: 'user', id: uid('user'), text, images: 0, skillsMode: false, files: [] });
 }
 
 export function addApproval(t: Timeline, request: PermissionRequest): Timeline {
@@ -219,6 +239,8 @@ function applyUser(t: Timeline, m: Record<string, any>, live: boolean): Timeline
   if (live || m.isSynthetic || m.isReplay) return t;
   const raw = contentText(content);
   if (/^\[Request interrupted/i.test(raw)) return addNotice(t, 'info', '已停止');
+  const team = teamItem(raw);
+  if (team) return push(t, team);
   const unwrapped = stripModeWrapper(raw);
   const { text, files } = splitAttachments(unwrapped.text);
   if ((!text.trim() && !files.length) || /^<(local-command|command-name|system-reminder)/.test(text.trim())) return t;
