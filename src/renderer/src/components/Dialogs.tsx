@@ -199,6 +199,28 @@ function PrBranchDialog({ cwd, message }: { cwd: string; message: string }) {
   );
 }
 
+function RenameDialog({ convId, title }: { convId: string; title: string }) {
+  const { closeDialog, renameConversation } = useStore.getState();
+  const [name, setName] = useState(title);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => { const e = await renameConversation(convId, name); if (e) setErr(e); };
+  return (
+    <Modal onClose={closeDialog}>
+      <h2><Icon name="pen" />改名</h2>
+      <div className="inline pr-branch">
+        <input autoFocus value={name} data-testid="rename-input" onChange={e => { setName(e.target.value); setErr(null); }} onFocus={e => e.currentTarget.select()}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void go(); }} />
+      </div>
+      {err && <p className="field-err">{err}</p>}
+      <div className="mfoot">
+        <span className="note">同时写进 Claude Code 的会话，命令行 /resume 里也显示这个名字</span>
+        <button className="btn" onClick={closeDialog}>取消</button>
+        <button className="btn primary" data-testid="rename-save" disabled={!name.trim()} onClick={() => void go()}>保存</button>
+      </div>
+    </Modal>
+  );
+}
+
 /** 接手到本地的确认（C3） */
 function HandoffDialog({ convId }: { convId: string }) {
   const { closeDialog, handoff } = useStore.getState();
@@ -235,5 +257,6 @@ export function Dialogs() {
     case 'handoff': return <HandoffDialog convId={d.convId} />;
     case 'employee': return <Modal wide onClose={useStore.getState().closeDialog}><EmployeeEditor projectPath={d.projectPath} profile={d.profile} /></Modal>;
     case 'automation': return <AutomationForm automation={d.automation} />;
+    case 'rename': return <RenameDialog convId={d.convId} title={d.title} />;
   }
 }

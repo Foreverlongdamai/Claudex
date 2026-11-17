@@ -29,6 +29,7 @@ export type Dialog =
   /** 新建或修改员工档案；profile 为 null 是招新员工 */
   | { kind: 'employee'; projectPath: string; profile: EmployeeProfile | null }
   | { kind: 'automation'; automation: Automation | null }
+  | { kind: 'rename'; convId: string; title: string }
   | null;
 
 const STEP_LABEL: Record<NonNullable<CommitResult['error']>['step'], string> = {
@@ -149,9 +150,16 @@ interface UiState {
   /** 打开这次运行的对话（跑完的顺便标为已读） */
   openRun(r: AutomationRun): Promise<void>;
   deleteRun(runId: string): Promise<void>;
+  // ---- 对话历史（M2） ----
+  /** 打开一个会话（命令行的会话先加进 Claudex） */
+  openSession(sessionId: string, projectPath: string): Promise<void>;
+  forkConversation(convId: string): Promise<void>;
+  renameConversation(convId: string, title: string): Promise<string | null>;
+  pinConversation(convId: string, pinned: boolean): Promise<void>;
+  exportConversation(convId: string, format: 'md' | 'html'): Promise<void>;
 }
 
-export type View = 'chat' | 'board' | 'automation';
+export type View = 'chat' | 'board' | 'automation' | 'search';
 
 let toastSeq = 0;
 /**
@@ -558,6 +566,55 @@ export const useStore = create<UiState>((set, get) => {
         get().toast(`已停止任务 #${taskId}`);
       } catch (e) {
         get().toast(`停不下来：${errText(e)}`);
+      }
+    },
+
+    async openSession(sessionId, projectPath) {
+      try {
+        const meta = await api.openSession(sessionId, projectPath);
+        upsertMetaInApp(meta);
+        await get().openConversation(meta.id);
+      } catch (e) {
+        get().toast(`打不开：${errText(e)}`);
+      }
+    },
+
+    async forkConversation(convId) {
+      try {
+        const meta = await api.forkConversation(convId);
+        upsertMetaInApp(meta);
+        await get().openConversation(meta.id);
+        get().toast('已分叉：这是一份副本，原来的对话不动');
+      } catch (e) {
+        get().toast(`分叉失败：${errText(e)}`);
+      }
+    },
+
+    async renameConversation(convId, title) {
+      try {
+        const meta = await api.renameConversation(convId, title);
+        upsertMetaInApp(meta);
+        patchConv(convId, () => ({ meta }));
+        set({ dialog: null });
+        return null;
+      } catch (e) {
+        return errText(e);
+      }
+    },
+
+    async pinConversation(convId, pinned) {
+      const meta = await api.pinConversation(convId, pinned);
+      upsertMetaInApp(meta);
+      patchConv(convId, () => ({ meta }));
+      get().toast(pinned ? '已置顶' : '已取消置顶');
+    },
+
+    async exportConversation(convId, format) {
+      try {
+        const file = await api.exportConversation(convId, format);
+        if (file) get().notify('ok', `已导出：${file}`);
+      } catch (e) {
+        get().toast(`导出失败：${errText(e)}`);
       }
     },
 

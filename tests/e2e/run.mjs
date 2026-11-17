@@ -57,7 +57,9 @@ async function launch() {
       ...process.env, CLAUDEX_USER_DATA: userData,
       CLAUDEX_GH: path.join(root, 'tests', 'unit', 'fake-gh.mjs'), CLAUDEX_GH_LOG: ghLog, CLAUDEX_TRASH_DIR: trashDir,
       // 自动化：每 2 秒检查一次到点没有；不弹系统通知
-      CLAUDEX_AUTOMATION_TICK_MS: '2000', CLAUDEX_NO_NOTIFY: '1'
+      CLAUDEX_AUTOMATION_TICK_MS: '2000', CLAUDEX_NO_NOTIFY: '1',
+      // 导出对话：直接存到这里，不弹保存框
+      CLAUDEX_EXPORT_DIR: path.join(work, 'exports')
     }
   });
   win = await app.firstWindow();
@@ -885,8 +887,13 @@ async function expandEmployee(id) {
 }
 /** 等员工交回的结果出现在主对话里，并且老板处理完 */
 async function waitResults(n, timeout = 240000) {
-  await waitFor(async () => (await resultCards().count()) >= n, timeout, `主对话里出现第 ${n} 个员工交回的结果`);
-  await waitTurn(timeout);
+  // 等的时候负责人可能自己跑命令核对结果（主对话是“询问”模式），有审批就批
+  await waitFor(async () => {
+    const allow = win.locator('[data-testid=approval] button', { hasText: '允许一次' });
+    if (await allow.count()) await allow.first().click().catch(() => {});
+    return (await resultCards().count()) >= n;
+  }, timeout, `主对话里出现第 ${n} 个员工交回的结果`);
+  await runApproving(timeout);
 }
 let boss1;
 
@@ -898,7 +905,7 @@ await step('43 招人：主对话提议招人时弹出档案卡片，可以改�
   await win.reload();
   await win.waitForSelector('.app');
   await win.locator('.proj-head', { hasText: 'team-project' }).click();
-  await sendMsg('我们需要一个翻译员工。请直接用 hire_employee 招一个：编号 translator，名字“小李”，负责中英互译；模型 haiku。角色提示词写清楚：只输出译文，不加解释。录用后回复 DONE。');
+  await sendMsg('我们需要一个翻译员工。请直接用 hire_employee 招一个：编号 translator，名字“小李”，负责中英互译；模型 sonnet。角色提示词写清楚：只输出译文，不加解释。录用后回复 DONE。');
   await win.waitForSelector('[data-testid=profile-approval]', { timeout: 180000 });
   await shot('43-hire-card');
   await win.locator('[data-testid=profile-approval] [data-testid=pf-name]').fill('小李子');
@@ -907,14 +914,14 @@ await step('43 招人：主对话提议招人时弹出档案卡片，可以改�
   boss1 = await activeConvId();
   if (!fs.existsSync(agentFile('translator'))) throw new Error('档案没写到 .claude/agents/translator.md');
   const text = fs.readFileSync(agentFile('translator'), 'utf8');
-  if (!text.includes('displayName: 小李子') || !text.includes('model: haiku')) throw new Error('档案内容不对（卡片里改的名字、模型）：' + text);
+  if (!text.includes('displayName: 小李子') || !text.includes('model: sonnet')) throw new Error('档案内容不对（卡片里改的名字、模型）：' + text);
   if (/tools:|permissionMode:/.test(text)) throw new Error('档案里不该有工具、权限的限制：' + text);
   await waitFor(async () => (await win.locator('[data-testid=employee-item][data-employee=translator]').count()) === 1, 5000, '侧栏的团队里出现小李子');
 });
 
 await step('44 派活：老板派完马上回来，员工在自己的新对话里做，做完结果自动送回主对话', async () => {
   await sendMsg('用 assign_task 把一个活派给 translator，标题“翻译通知”：把“今晚八点上线新版本”翻译成英文。派完马上回复我“已派出”，不要等结果。');
-  await waitTurn();
+  await runApproving();
   if (!(await lastAssistant()).includes('已派出')) throw new Error('老板没有马上回来：' + await lastAssistant());
   if ((await win.locator('[data-testid=assign-row]').count()) < 1) throw new Error('主对话里没有派活记录');
   await waitResults(1);
@@ -936,7 +943,7 @@ await step('44 派活：老板派完马上回来，员工在自己的新对话�
 await step('45 并行：同一个员工同时接两个活，开两个对话一起做', async () => {
   await win.locator(`[data-testid=conversation-item][data-id="${boss1}"]`).click();
   await sendMsg('同时派两个活给 translator，都不要等：1）标题“翻译A”，把“你好”翻成英文；2）标题“翻译B”，把“谢谢”翻成英文。两个都派出去后回复“已派出”。');
-  await waitTurn();
+  await runApproving();
   await waitResults(3);
   const tasks = await teamTasks();
   const a = tasks.find(x => x.title === '翻译A');
@@ -960,7 +967,7 @@ await step('46 员工完全访问：运行写文件的命令直接做，不用�
   await win.locator(`[data-testid=conversation-item][data-id="${boss1}"]`).click();
   // 写文件的命令：员工完全访问，直接运行，不经过任何审批
   await sendMsg('用 assign_task 派给 tester，标题“写探针文件”：用 Bash 运行 node -e "require(\'fs\').writeFileSync(\'probe.txt\', \'ok\')"，在项目根目录生成 probe.txt，然后汇报。派完回复“已派出”。');
-  await waitTurn();
+  await runApproving();
   const t = await waitTask(ts => ts.filter(x => x.employeeId === 'tester').pop(), ['done', 'failed'], 300000, '测试员的任务');
   if (t.status !== 'done') throw new Error('任务结果不对：' + JSON.stringify(t));
   await waitResults(4);
@@ -1001,18 +1008,19 @@ await step('48 另一个主对话也能看团队、改员工档案（先弹卡�
   if (!fs.readFileSync(agentFile('translator'), 'utf8').includes('description: 中英日翻译')) throw new Error('档案没改');
   await waitFor(async () => (await win.locator('[data-testid=employee-item][data-employee=translator]').innerText()).includes('中英日翻译'), 5000, '侧栏显示新的描述');
   await sendMsg('用 list_employees 看一下有哪些员工，只回复他们的编号，用逗号隔开。');
-  await waitTurn();
+  await runApproving();
   const reply = await lastAssistant();
   if (!reply.includes('translator') || !reply.includes('tester')) throw new Error('看不到全部员工：' + reply);
 });
 
 await step('49 新的活里员工照着教过的规矩做（长期记忆跨对话生效）', async () => {
   await sendMsg('用 assign_task 派给 translator，标题“翻译谢谢”：把“非常感谢”翻成英文。派完回复“已派出”。');
-  await waitTurn();
+  await runApproving();
   await waitResults(1);
   const t = (await teamTasks()).find(x => x.title === '翻译谢谢');
   if (!t || t.fromConvId !== boss2) throw new Error('任务记录不对：' + JSON.stringify(t));
-  if (!(t.result ?? '').trim().endsWith('—— 小李子')) throw new Error('没照着规矩写落款：' + t.result);
+  // 落款单独一行（汇报按“结果 / 改动 / 说明”的格式时，落款在“结果”里译文的后面）
+  if (!/^\s*—— 小李子\s*$/m.test(t.result ?? '')) throw new Error('没照着规矩写落款：' + t.result);
   await shot('49-second-boss');
 });
 
@@ -1040,7 +1048,7 @@ await step('51 直接和员工聊：他自己把 office-pdf 加进能用的 Skil
   await (await expandEmployee('translator')).locator('[data-testid=employee-new-chat]').click();
   await waitFor(async () => (await win.locator('[data-testid=employee-chip]').innerText()).includes('小李子'), 5000, '打开的是小李子的对话');
   await sendMsg('把 office-pdf 也加到你能用的 Skills 里（保留原来的 office-docx）。用 update_my_skills 改，然后回复 DONE。');
-  await waitTurn();
+  await runApproving();
   if (await win.locator('.approval').count()) throw new Error('改自己的 Skills 不该再弹确认');
   const text = profileText('translator');
   if (!/skills: \[.*office-docx.*\]/.test(text) || !/skills: \[.*office-pdf.*\]/.test(text)) throw new Error('档案里的 Skills 不对：' + text);
@@ -1060,14 +1068,15 @@ await step('52 任务看板：看到员工和全部任务，能打开员工做�
   const id = await card.getAttribute('data-task');
   await card.locator('[data-testid=board-open]').click();
   await win.waitForSelector('[data-testid=task-card]');
-  if (!(await win.locator('[data-testid=task-card]').first().innerText()).includes(`#${id}`)) throw new Error('打开的不是这个任务的对话');
+  // 返工（continue_task）时同一个对话里有好几张任务卡片
+  await waitFor(async () => (await win.locator('[data-testid=task-card]').allInnerTexts()).some(t => t.includes(`#${id}`)), 5000, '打开的是这个任务的对话');
 });
 
 let boss3;
 await step('53 转交：翻译把活转交给测试员写文件，最后的结果交回主对话（带交接链）', async () => {
   await win.locator('.proj-head', { hasText: 'team-project' }).click();
   await sendMsg('用 assign_task 派给 translator，标题“翻译并存档”，任务说明这样写：把“早上好”翻译成英文；你只负责翻译，自己不要写文件，翻译完必须用 handoff_task 转交给 tester，交接说明里写上译文，让他把译文写进项目根目录的 greeting.txt。派完回复“已派出”，不要等结果。');
-  await waitTurn();
+  await runApproving();
   boss3 = await activeConvId();
   const first = await waitTask(ts => ts.filter(x => x.employeeId === 'translator' && x.fromConvId === boss3).pop(), ['handed', 'done', 'failed'], 300000, '翻译的任务');
   if (first.status !== 'handed' || !first.handedTo) throw new Error('没有转交：' + JSON.stringify(first));
@@ -1084,7 +1093,7 @@ await step('53 转交：翻译把活转交给测试员写文件，最后的结�
 
 await step('54 请同事帮忙：测试员请翻译做一部分，等结果回来接着做完，再交回主对话', async () => {
   await sendMsg('用 assign_task 派给 tester，标题“晚上好存档”，任务说明这样写：先用 ask_colleague 请 translator 把“晚上好”翻译成英文；在他的结果回来之前不要自己翻译，先结束这一轮；结果回来后，把译文写进项目根目录的 evening.txt，再汇报。派完回复“已派出”，不要等结果。');
-  await waitTurn();
+  await runApproving();
   const started = Date.now() - 120000;
   const main = await waitTask(ts => ts.filter(x => x.employeeId === 'tester' && x.fromConvId === boss3 && x.createdAt > started && !x.handedFrom).pop(), ['done', 'failed'], 400000, '测试员的任务');
   const sub = (await teamTasks()).find(x => x.parentId === main.id);
@@ -1097,7 +1106,7 @@ await step('54 请同事帮忙：测试员请翻译做一部分，等结果回�
 
 await step('55 任务看板上停止一个正在做的任务，派活的主对话收到“没做完”', async () => {
   await sendMsg('用 assign_task 派给 tester，标题“慢任务”：用 Bash 运行 node -e "setTimeout(()=>{}, 120000)"，等它结束后汇报。派完回复“已派出”，不要等结果。');
-  await waitTurn();
+  await runApproving();
   const before = await resultCards().count();
   const t = await waitTask(ts => ts.filter(x => x.employeeId === 'tester').pop(), ['running'], 60000, '慢任务开始');
   await win.locator('[data-testid=board-button]').click();
@@ -1234,6 +1243,90 @@ await step('60 App 关着时错过的运行：下次打开补跑一次', async (
   const a = (await autoState()).automations.find(x => x.id === auto1);
   if (!a.nextRunAt || a.nextRunAt <= Date.now()) throw new Error('补跑后下一次的时刻不对');
   if ((await autoState()).runs.filter(x => x.automationId === auto1 && x.trigger === 'catchup').length !== 1) throw new Error('只该补跑一次');
+});
+
+// ---------- 对话历史（M2） ----------
+let cliSession, cliConv, forkConv;
+const exportDir = path.join(work, 'exports');
+
+await step('61 搜索：命令行里的旧会话按内容能搜到，打开接着聊', async () => {
+  // 不经过 Claudex，直接用 SDK 在 demo-project 里开一个会话（相当于在命令行里用过）
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const { detectGitBash } = await import('../../src/main/environment.ts');
+  const bash = detectGitBash(null).path;
+  for await (const m of query({
+    prompt: 'Remember this code word: PINEAPPLE-42. Reply with the code word spelled backwards, in uppercase, and nothing else.',
+    options: { cwd: project, permissionMode: 'default', maxTurns: 1, env: { ...process.env, ...(bash ? { CLAUDE_CODE_GIT_BASH_PATH: bash } : {}) } }
+  })) {
+    if (m.type === 'result') cliSession = m.session_id;
+  }
+  if (!cliSession) throw new Error('没建出命令行的会话');
+  await win.locator('[data-testid=search-button]').click();
+  await win.waitForSelector('[data-testid=history-view]');
+  await win.locator('[data-testid=history-scope]').selectOption('all');
+  // Claude 回复里才有的词：按内容搜到
+  await win.locator('[data-testid=history-input]').fill('24-elppaenip');
+  const item = win.locator(`[data-testid=history-item][data-session="${cliSession}"]`);
+  await item.waitFor({ timeout: 60000 });
+  const text = await item.innerText();
+  if (!text.includes('命令行') || !text.includes('内容里有')) throw new Error('搜索结果没标出命令行、内容命中：' + text);
+  await shot('61-search');
+  await item.locator('[data-testid=history-open]').click();
+  await waitFor(async () => (await win.locator('.msg.user').count()) >= 1 && /24-ELPPAENIP/.test(await lastAssistant()), 20000, '打开后看到历史');
+  cliConv = (await win.evaluate(() => window.claudex.getState())).conversations.find(c => c.sessionId === cliSession)?.id;
+  if (!cliConv) throw new Error('没加进 Claudex 的对话列表');
+  await waitFor(async () => (await win.locator(`[data-testid=conversation-item][data-id="${cliConv}"]`).count()) === 1, 5000, '左栏出现这个对话');
+  await sendMsg('What was the code word? Reply with just the code word.');
+  await waitTurn();
+  if (!(await lastAssistant()).includes('PINEAPPLE-42')) throw new Error('接着聊不记得：' + await lastAssistant());
+  // 再搜一次：已经是 Claudex 的对话了
+  await win.locator('[data-testid=search-button]').click();
+  await win.locator('[data-testid=history-input]').fill('pineapple');
+  await waitFor(async () => (await win.locator(`[data-testid=history-item][data-session="${cliSession}"]`).innerText()).includes('Claudex'), 30000, '标成 Claudex 的对话');
+});
+
+await step('62 更多菜单：改名、置顶', async () => {
+  await win.locator(`[data-testid=conversation-item][data-id="${cliConv}"]`).click();
+  await win.locator('[data-testid=more-button]').click();
+  await win.locator('[data-testid=more-rename]').click();
+  await win.locator('[data-testid=rename-input]').fill('暗号会话');
+  await win.locator('[data-testid=rename-save]').click();
+  await waitFor(async () => (await win.locator(`[data-testid=conversation-item][data-id="${cliConv}"]`).innerText()).includes('暗号会话'), 5000, '左栏显示新名字');
+  await win.locator('[data-testid=more-button]').click();
+  await win.locator('[data-testid=more-pin]').click();
+  const proj = win.locator('.proj', { has: win.locator('.proj-head', { hasText: 'demo-project' }) });
+  await waitFor(async () => (await proj.locator('[data-testid=conversation-item]').first().getAttribute('data-id')) === cliConv, 5000, '置顶的排在最前面');
+  if (!(await proj.locator(`[data-testid=conversation-item][data-id="${cliConv}"] [data-testid=pin-mark]`).count())) throw new Error('没有置顶的标记');
+  await shot('62-pinned');
+  const meta = await convMeta(cliConv);
+  if (meta.title !== '暗号会话' || !meta.pinned) throw new Error('没记下：' + JSON.stringify(meta));
+});
+
+await step('63 分叉：复制一份接着聊，原来的对话不动', async () => {
+  const before = await win.locator('.msg.user').count();
+  await win.locator('[data-testid=more-button]').click();
+  await win.locator('[data-testid=more-fork]').click();
+  await waitFor(async () => (await win.locator('.topbar .tt').innerText()).includes('（分叉）'), 15000, '打开分叉出来的对话');
+  forkConv = (await win.evaluate(() => window.claudex.getState())).conversations.find(c => c.title === '暗号会话（分叉）')?.id;
+  if (!forkConv || forkConv === cliConv) throw new Error('没有新对话');
+  await waitFor(async () => (await win.locator('.msg.user').count()) === before, 20000, '分叉出来的对话带着原来的历史');
+  await sendMsg('Reply with the code word in lowercase, nothing else.');
+  await waitTurn();
+  if (!(await lastAssistant()).includes('pineapple-42')) throw new Error('分叉后不记得：' + await lastAssistant());
+  await win.locator(`[data-testid=conversation-item][data-id="${cliConv}"]`).click();
+  await waitFor(async () => (await win.locator('.msg.user').count()) === before, 20000, '原来的对话没多出消息');
+});
+
+await step('64 导出成 Markdown 和 HTML', async () => {
+  for (const fmt of ['md', 'html']) {
+    await win.locator('[data-testid=more-button]').click();
+    await win.locator(`[data-testid=more-export-${fmt}]`).click();
+    await waitOk('已导出', 15000);
+  }
+  const md = fs.readFileSync(path.join(exportDir, '暗号会话.md'), 'utf8');
+  const html = fs.readFileSync(path.join(exportDir, '暗号会话.html'), 'utf8');
+  if (!md.startsWith('# 暗号会话') || !md.includes('PINEAPPLE-42') || !md.includes('## Claude')) throw new Error('Markdown 不对：' + md.slice(0, 300));
+  if (!html.includes('<title>暗号会话</title>') || !html.includes('PINEAPPLE-42')) throw new Error('HTML 不对');
 });
 
 await app.close();

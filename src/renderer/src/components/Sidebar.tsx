@@ -29,6 +29,7 @@ function ConvRow({ c, indent }: { c: ConversationMeta; indent?: boolean }) {
   return (
     <div className={`sess${indent ? ' emp-sess' : ''}${c.id === activeId ? ' active' : ''}`} data-testid="conversation-item" data-id={c.id} onClick={() => void openConversation(c.id)}>
       {inWorktree(c) && <span className="sess-wt" title={`在 worktree 里：${c.worktree!.branch}`}><Icon name="layers" size={13} /></span>}
+      {c.pinned && <span className="pin-mark" data-testid="pin-mark" title="已置顶"><Icon name="pin" size={12} /></span>}
       <span className="t">{c.title}</span>
       {waiting ? <i className="dot wait" title="等你审批" /> : running ? <i className="spin" title="正在运行" /> : view?.status === 'error' ? <i className="dot bad" title="出错了" /> : <span className="when">{when(c.updatedAt)}</span>}
       <button className="ibtn sm sess-del" title="删除这个对话（只从列表删除）" onClick={e => {
@@ -93,7 +94,10 @@ export function Sidebar() {
           title="当前项目的员工和全部任务" onClick={() => useStore.getState().setView(view === 'board' ? 'chat' : 'board')}>
           <Icon name="listcheck" />任务看板{runningTasks > 0 && <span className="nav-badge">{runningTasks}</span>}
         </button>
-        <button className="nav-item" disabled title="M2 阶段"><Icon name="search" />搜索<span className="ms">M2</span></button>
+        <button className={`nav-item${view === 'search' ? ' on' : ''}`} data-testid="search-button" title="搜索全部对话，包括命令行里用过的（Ctrl+K）"
+          onClick={() => useStore.getState().setView(view === 'search' ? 'chat' : 'search')}>
+          <Icon name="search" />搜索<kbd>Ctrl+K</kbd>
+        </button>
         <button className={`nav-item${view === 'automation' ? ' on' : ''}`} data-testid="automation-button"
           title="定时任务和审查队列" onClick={() => useStore.getState().setView(view === 'automation' ? 'chat' : 'automation')}>
           <Icon name="clock" />自动化{toReview > 0 && <span className="nav-badge" data-testid="automation-badge" title="审查队列里等你看的结果">{toReview}</span>}
@@ -108,7 +112,7 @@ export function Sidebar() {
       <div className="tree">
         {app.projects.map(p => {
           // 自动化的运行不放在这里，从“自动化”的审查队列打开
-          const all = app.conversations.filter(c => c.projectPath === p.path && !c.automation).sort((a, b) => b.updatedAt - a.updatedAt);
+          const all = app.conversations.filter(c => c.projectPath === p.path && !c.automation).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt);
           const mains = all.filter(c => !c.employee);
           const profiles = team[p.path] ?? [];
           // 员工的对话；档案被删掉的员工也列出来（对话还在）

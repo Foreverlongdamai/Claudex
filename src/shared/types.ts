@@ -50,6 +50,34 @@ export interface ConversationMeta {
   workdir?: string;
   /** 自动化的一次运行（C4）：不在左栏的对话列表里，从“自动化”的审查队列打开 */
   automation?: { id: string; runId: string; name: string };
+  /** 置顶：在左栏排在最前面（M2） */
+  pinned?: boolean;
+}
+
+/** Claude Code 的一个会话（Claudex 里的，或者命令行里用过的）（M2） */
+export interface HistorySession {
+  sessionId: string;
+  /** 属于哪个 Claudex 项目 */
+  projectPath: string;
+  title: string;
+  firstPrompt?: string;
+  lastModified: number;
+  createdAt?: number;
+  /** 会话的工作目录（可能是项目的子文件夹或者 worktree） */
+  cwd?: string;
+  gitBranch?: string;
+  /** 已经在 Claudex 里：对应的对话 */
+  convId?: string;
+  /** Claudex 里的员工对话、自动化运行 */
+  employee?: string;
+  automation?: string;
+}
+
+export interface HistorySearchHit {
+  session: HistorySession;
+  /** 标题（或第一句话）里有，还是对话内容里有 */
+  where: 'title' | 'content';
+  snippet?: string;
 }
 
 export type { EmployeeProfile, MemoryScope } from './profile';
@@ -471,6 +499,17 @@ export interface ClaudexApi {
   markRunRead(runId: string): Promise<AutomationState>;
   /** 删掉一次运行的记录和它的对话（worktree 里的改动先存到分支上） */
   deleteRun(runId: string): Promise<AutomationState>;
+  // ---- 对话历史（M2） ----
+  /** 搜索会话（query 为空时列出最近的）；projectPath 为 null 表示全部项目 */
+  searchHistory(query: string, projectPath: string | null): Promise<HistorySearchHit[]>;
+  /** 打开一个会话：已经在 Claudex 里就返回那个对话，命令行的会话加进 Claudex */
+  openSession(sessionId: string, projectPath: string): Promise<ConversationMeta>;
+  /** 分叉：复制一份会话接着聊，原来的不动 */
+  forkConversation(convId: string): Promise<ConversationMeta>;
+  renameConversation(convId: string, title: string): Promise<ConversationMeta>;
+  pinConversation(convId: string, pinned: boolean): Promise<ConversationMeta>;
+  /** 导出成 Markdown 或 HTML：弹保存框，返回保存的路径（取消返回 null） */
+  exportConversation(convId: string, format: 'md' | 'html'): Promise<string | null>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

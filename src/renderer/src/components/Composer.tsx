@@ -17,7 +17,7 @@ const MAX_FILES = 20;
 /** Claude 能直接看的图片格式；其他图片（bmp、svg、太大的）按普通文件附加 */
 const VISIBLE_IMAGE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
-function useOutsideClose(open: boolean, close: () => void) {
+export function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;

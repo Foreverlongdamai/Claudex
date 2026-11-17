@@ -23,6 +23,7 @@ import { Store, samePath } from './store';
 import { TerminalManager, listShells } from './terminal';
 import { AutomationManager } from './automation';
 import { appIcon, createTray } from './tray';
+import { HistoryManager } from './history';
 
 // 自动化测试用独立的数据目录，不碰用户真实的数据
 if (process.env.CLAUDEX_USER_DATA) app.setPath('userData', process.env.CLAUDEX_USER_DATA);
@@ -40,6 +41,7 @@ let terminals: TerminalManager;
 let review: ReviewManager;
 let team: TeamManager;
 let automation: AutomationManager;
+let history: HistoryManager;
 let tray: Tray | null = null;
 /** 真的要退出了（托盘菜单的退出、系统关机）：关窗口不再缩到托盘 */
 let quitting = false;
@@ -372,7 +374,32 @@ function registerIpc(): void {
     setAutomationEnabled: async (id, enabled) => automation.setEnabled(id, enabled),
     runAutomation: id => automation.run(id, 'manual'),
     markRunRead: async id => automation.markRead(id),
-    deleteRun: id => automation.deleteRun(id)
+    deleteRun: id => automation.deleteRun(id),
+    // ---- 对话历史（M2） ----
+    searchHistory: (q, p) => history.search(q, p),
+    openSession: (sid, p) => history.open(sid, p),
+    forkConversation: id => history.fork(id),
+    renameConversation: (id, title) => history.rename(id, title),
+    pinConversation: async (id, pinned) => history.pin(id, pinned),
+    exportConversation: async (id, format) => {
+      const { name, content } = await history.export(id, format);
+      // 自动化测试设 CLAUDEX_EXPORT_DIR：直接存到那里，不弹保存框
+      let target: string | null = null;
+      if (process.env.CLAUDEX_EXPORT_DIR) {
+        fs.mkdirSync(process.env.CLAUDEX_EXPORT_DIR, { recursive: true });
+        target = path.join(process.env.CLAUDEX_EXPORT_DIR, name);
+      } else {
+        const r = await dialog.showSaveDialog(win!, {
+          title: '导出对话', defaultPath: path.join(app.getPath('documents'), name),
+          filters: format === 'md' ? [{ name: 'Markdown', extensions: ['md'] }] : [{ name: '网页', extensions: ['html'] }]
+        });
+        if (r.canceled || !r.filePath) return null;
+        target = r.filePath;
+      }
+      fs.writeFileSync(target, content, 'utf8');
+      log(`导出对话：${target}`);
+      return target;
+    }
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
@@ -429,6 +456,7 @@ if (!app.requestSingleInstanceLock()) {
       deleteConversation: removeConversation,
       emit, notify, log
     }, Number(process.env.CLAUDEX_AUTOMATION_TICK_MS) || 30_000);
+    history = new HistoryManager({ store, emit, log });
     registerIpc();
     createWindow();
     tray = createTray({

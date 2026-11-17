@@ -5,6 +5,7 @@ import { Dialogs } from './components/Dialogs';
 import { ReviewPanel } from './components/ReviewPanel';
 import { TaskBoard } from './components/Board';
 import { AutomationView } from './components/Automation';
+import { HistoryView } from './components/History';
 import { Sidebar } from './components/Sidebar';
 import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
@@ -81,6 +82,11 @@ export function App() {
         s.requestMode(MODE_ORDER[(MODE_ORDER.indexOf(cur) + 1) % MODE_ORDER.length]);
         return;
       }
+      if (e.ctrlKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        if (s.app?.projects.length) s.setView(s.view === 'search' ? 'chat' : 'search');
+        return;
+      }
       if (e.ctrlKey && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         if (s.app?.projects.length) s.startDraft();
@@ -96,7 +102,7 @@ export function App() {
       <Sidebar />
       <div className="mainwrap">
         <TopBar />
-        {view === 'automation' ? <div className="content"><AutomationView /></div> : view === 'board' && hasProjects ? <div className="content"><TaskBoard /></div> : (
+        {view === 'automation' ? <div className="content"><AutomationView /></div> : view === 'search' ? <div className="content"><HistoryView /></div> : view === 'board' && hasProjects ? <div className="content"><TaskBoard /></div> : (
         <div className="content">
         <main className="chat" {...(hasProjects ? dropHandlers : {})}>
           {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}
