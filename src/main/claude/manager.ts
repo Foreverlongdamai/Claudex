@@ -1,6 +1,6 @@
 // 管理所有对话的进程：按需启动、限制同时运行的数量（每个约 250 MB，M0 实测）、回收闲置的。
 // 被回收的对话下次发消息时会用 resume 续接，上下文不会丢（M0 验证过）。
-import { getSessionMessages, query, type Query } from '@anthropic-ai/claude-agent-sdk';
+import { getSessionMessages, query, type PermissionResult, type Query } from '@anthropic-ai/claude-agent-sdk';
 import os from 'node:os';
 import type { CommandInfo, ConvEvent, FileAttachment, ImageAttachment, ModelOption, OpenedConversation, SdkMessageLike } from '../../shared/types';
 import { convCwd } from '../../shared/conv';
@@ -68,10 +68,21 @@ export class SessionManager {
     await s.send(text, images, files);
   }
 
+  /** 这些对话下次发消息时重启进程（员工档案改了） */
+  markStale(convIds: string[]): void {
+    for (const id of convIds) this.sessions.get(id)?.markStale();
+  }
+
   /** 项目环境改了：这个项目的对话下次发消息时重启进程 */
   markProjectStale(projectPath: string): void {
     const norm = (p: string) => p.replace(/\//g, '\\').replace(/\\$/, '').toLowerCase();
     for (const s of this.sessions.values()) if (norm(s.meta.projectPath) === norm(projectPath)) s.markStale();
+  }
+
+  /** 在对话里弹卡片请用户确认（Claudex 工具里用，不受权限模式影响） */
+  confirm(convId: string, toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
+    const s = this.sessions.get(convId);
+    return s ? s.confirm(toolName, input) : Promise.resolve({ behavior: 'deny', message: '对话进程不在了' });
   }
 
   /** 正在回复或者在等审批 */
@@ -106,6 +117,19 @@ export class SessionManager {
         throw e;
       });
     return this.models;
+  }
+
+  private skills = new Map<string, { at: number; list: CommandInfo[] }>();
+
+  /** 项目里能用的 Skills（全局、项目、插件里的；按项目缓存 5 分钟）。员工档案从这里面挑 */
+  async listSkills(projectPath: string): Promise<CommandInfo[]> {
+    const cached = this.skills.get(projectPath);
+    if (cached && Date.now() - cached.at < 5 * 60_000) return cached.list;
+    const list = (await withProbe(projectPath, this.deps.env(), q => q.reloadSkills())).skills
+      .map(s => ({ name: s.name, description: s.description ?? '' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    this.skills.set(projectPath, { at: Date.now(), list });
+    return list;
   }
 
   /** 项目里能用的斜杠命令和 Skills（按项目缓存 5 分钟） */

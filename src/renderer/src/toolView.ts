@@ -136,6 +136,16 @@ export function describeTool(item: ToolItem, projectPath: PathBase): ToolView {
       return { icon: 'listcheck', verb: '查看了任务', running: '正在查看任务', body: 'output' };
     case 'mcp__claudex__get_task':
       return { icon: 'listcheck', verb: '查看了任务', running: '正在查看任务', target: `#${s(input.task).replace(/^#/, '')}`, body: 'output' };
+    case 'mcp__claudex__list_skills':
+      return { icon: 'spark', verb: '查看了 Skills', running: '正在查看 Skills', target: s(input.filter) || undefined, body: 'output' };
+    case 'mcp__claudex__list_colleagues':
+      return { icon: 'users', verb: '查看了同事', running: '正在查看同事', body: 'output' };
+    case 'mcp__claudex__handoff_task':
+      return { icon: 'users', verb: '转交给', running: '正在转交给', target: s(input.colleague), body: 'output' };
+    case 'mcp__claudex__ask_colleague':
+      return { icon: 'users', verb: '请同事帮忙', running: '正在请同事帮忙', target: `${s(input.colleague)}：${s(input.title)}`, body: 'output' };
+    case 'mcp__claudex__update_my_skills':
+      return { icon: 'spark', verb: '调整了能用的 Skills', running: '正在调整能用的 Skills', target: Array.isArray(input.skills) && input.skills.length ? (input.skills as string[]).join('、') : '全部', body: 'output' };
     case 'mcp__claudex__set_project_env':
       return { icon: 'pkg', verb: '登记了项目环境', running: '正在登记项目环境', target: s(input.env), body: 'output' };
     default: {

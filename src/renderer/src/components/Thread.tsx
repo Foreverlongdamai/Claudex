@@ -84,15 +84,12 @@ function Todos({ item }: { item: ToolItem }) {
   );
 }
 
-function ToolRow({ item, projectPath, convId }: { item: ToolItem; projectPath: PathBase; convId: string }) {
-  const verdict = useStore(s => s.convs[convId]?.judged?.[item.id]);
+function ToolRow({ item, projectPath }: { item: ToolItem; projectPath: PathBase }) {
   if (item.name === 'TodoWrite' && todosOf(item)) return <Todos item={item} />;
   if (item.name === 'mcp__claudex__assign_task') return <AssignRow input={item.input} output={item.output} running={item.status === 'running'} />;
   const v = describeTool(item, projectPath);
   const running = item.status === 'running';
-  // 员工的操作由负责人替用户审批：标在这一行上，鼠标移上去看理由
-  const judgedTag = verdict ? <span className={`tag ${verdict.allow ? 'judged' : 'deny'}`} data-testid="judged-tag" title={verdict.reason}>{verdict.allow ? '负责人批准' : '负责人拒绝'}</span> : null;
-  const tags = <>{judgedTag}{item.status === 'denied' && !verdict ? <span className="tag deny">已拒绝</span> : item.status === 'error' ? <span className="tag fail">出错</span> : null}</>;
+  const tags = item.status === 'denied' ? <span className="tag deny">已拒绝</span> : item.status === 'error' ? <span className="tag fail">出错</span> : null;
   const took = item.endedAt && item.endedAt - item.startedAt > 2000 ? `${secs(item.endedAt - item.startedAt)} 秒` : undefined;
   const meta = [v.meta, took].filter(Boolean).join(' · ') || undefined;
   let body: ReactNode = null;
@@ -317,7 +314,7 @@ function ItemView({ item, convId, projectPath }: { item: Item; convId: string; p
     case 'thinking':
       return <ThinkingRow item={item} />;
     case 'tool':
-      return <ToolRow item={item} projectPath={projectPath} convId={convId} />;
+      return <ToolRow item={item} projectPath={projectPath} />;
     case 'approval':
       return <ApprovalView convId={convId} item={item} projectPath={projectPath} />;
     case 'notice':

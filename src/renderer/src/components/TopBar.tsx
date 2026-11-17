@@ -5,7 +5,8 @@ import { useActiveCwd, useCurrentSettings, useStore } from '../store';
 import { Icon } from './Icon';
 
 export function TopBar() {
-  const conv = useStore(s => (s.activeId ? s.convs[s.activeId] : null));
+  const boardView = useStore(s => s.view === 'board');
+  const conv = useStore(s => (s.activeId && s.view !== 'board' ? s.convs[s.activeId] : null));
   const project = useStore(s => s.app?.projects.find(p => p.path === (conv?.meta.projectPath ?? s.activeProject)));
   const settings = useCurrentSettings();
   const mode = settings?.mode;
@@ -22,7 +23,7 @@ export function TopBar() {
   const empId = conv?.meta.employee?.id;
   return (
     <div className="topbar drag">
-      <span className="tt">{conv ? conv.meta.title : project ? '新对话' : 'Claudex'}</span>
+      <span className="tt">{boardView ? '任务看板' : conv ? conv.meta.title : project ? '新对话' : 'Claudex'}</span>
       {project && <span className="tp">{project.name}</span>}
       {empId && (
         <button className="emp-chip" data-testid="employee-chip" title={employee ? `员工档案：${employee.description}` : '档案已删除'}

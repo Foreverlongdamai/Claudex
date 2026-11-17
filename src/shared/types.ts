@@ -50,14 +50,7 @@ export interface ConversationMeta {
   workdir?: string;
 }
 
-export type { EmployeeProfile, EmployeeMode, MemoryScope } from './profile';
-
-/** 负责人对员工操作的审批结果 */
-export interface Verdict {
-  allow: boolean;
-  reason: string;
-  what: string;
-}
+export type { EmployeeProfile, MemoryScope } from './profile';
 
 export interface TeamTask {
   /** 任务编号，显示成 #12 */
@@ -67,14 +60,30 @@ export interface TeamTask {
   employeeName: string;
   /** 员工做这个活的对话 */
   convId: string;
-  /** 派活的主对话 */
+  /** 派活的对话：主对话，或者请同事帮忙的那个员工的对话 */
   fromConvId: string;
+  /** 派活的是主对话（负责人）还是员工（请同事帮忙） */
+  fromKind?: 'boss' | 'employee';
+  /** 派活方的名字（主对话标题或员工名字） */
+  fromName?: string;
   title: string;
-  status: 'running' | 'done' | 'failed';
+  /** 任务说明 */
+  text?: string;
+  /** running 在做；waiting 等同事帮忙的部分；handed 已经转交给同事；done 已交回；failed 没做完 */
+  status: 'running' | 'waiting' | 'handed' | 'done' | 'failed';
   createdAt: number;
   endedAt?: number;
   /** 员工交回的汇报 */
   result?: string;
+  /** 请同事帮忙：这是哪个任务的一部分 */
+  parentId?: string;
+  /** 转交：从哪个任务转来的 / 转交给了哪个任务 */
+  handedFrom?: string;
+  handedTo?: string;
+  /** 在等哪些同事的任务 */
+  waitingFor?: string[];
+  /** 交接链的深度（防止员工之间推来推去） */
+  depth?: number;
 }
 
 export interface WorktreeInfo {
@@ -349,8 +358,6 @@ export type ConvEvent =
   | { kind: 'injected'; convId: string; text: string }
   /** 对话里加一条提示 */
   | { kind: 'notice'; convId: string; tone: 'info' | 'ok' | 'error'; text: string; detail?: string }
-  /** 负责人替用户审批了员工的一个操作（显示在那一行活动记录上） */
-  | { kind: 'judged'; convId: string; toolUseId: string; verdict: Verdict }
   /** 任务开始、完成 */
   | { kind: 'task'; task: TeamTask }
   /** 项目的员工档案变了 */
@@ -364,8 +371,6 @@ export interface OpenedConversation {
   /** 还在等回答的审批（切换对话再切回来时用） */
   pending: PermissionRequest[];
   usage?: UsageInfo;
-  /** 员工的对话：负责人审批过的操作（工具调用 ID → 结果） */
-  judged?: Record<string, Verdict>;
 }
 
 /** preload 暴露给界面的接口：window.claudex */
@@ -397,6 +402,10 @@ export interface ClaudexApi {
   listTasks(projectPath: string): Promise<TeamTask[]>;
   /** 和某个员工开一个新对话（用户直接找他聊） */
   newEmployeeConversation(projectPath: string, employeeId: string): Promise<ConversationMeta>;
+  /** 项目里能用的 Skills（全局、项目、插件里的） */
+  listSkills(projectPath: string): Promise<CommandInfo[]>;
+  /** 停止一个正在做的任务 */
+  stopTask(taskId: string): Promise<void>;
   openConversation(convId: string): Promise<OpenedConversation>;
   deleteConversation(convId: string): Promise<AppState>;
   send(convId: string, text: string, images?: ImageAttachment[], files?: FileAttachment[]): Promise<void>;

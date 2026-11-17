@@ -1,10 +1,11 @@
 // 员工档案：用 Claude Code 自带的子代理格式，存在项目里的 .claude/agents/<编号>.md。
-// 开头的 YAML 放设置（工具、模型、权限、记忆……），正文是角色提示词。命令行 claude --agent <编号> 也能直接用。
+// 开头的 YAML 放设置（模型、思考强度、Skills、记忆），正文是角色提示词。命令行 claude --agent <编号> 也能直接用。
+// 员工一律完全访问、全部工具（用户决定：直接给员工完整的权限，不做各种限制），所以档案里没有工具和权限的设置：
+// 手写的 tools、disallowedTools、permissionMode 不读，Claudex 保存时也不写。
 // 只支持档案里用得到的简单 YAML：key: value、逗号分隔的列表、[a, b]、"- 项" 列表、带引号的字符串。
 // 纯函数，不依赖 Node，单元测试直接跑。
 import type { Effort } from './types';
 
-export type EmployeeMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 export type MemoryScope = 'project' | 'user' | 'local';
 
 export interface EmployeeProfile {
@@ -16,26 +17,20 @@ export interface EmployeeProfile {
   description: string;
   /** 角色提示词：身份、职责、工作方法、汇报格式 */
   prompt: string;
-  /** 能用的工具；不写表示全部 */
-  tools?: string[];
-  disallowedTools?: string[];
   /** opus / sonnet / haiku / inherit 或完整的模型 ID */
   model?: string;
   effort?: Effort;
-  permissionMode?: EmployeeMode;
-  /** 预装的 Skills */
+  /**
+   * 能用哪些 Skills（从全局和项目里已有的 Skill 里挑，Skill 本身不在档案里）；不写表示全部都能用。
+   * Claudex 里传给会话级别的 skills 选项：没选的 Skill 他看不到、Skill 工具也会拒绝；用到时才加载。
+   */
   skills?: string[];
   /** 长期记忆放在哪；null 表示不要长期记忆 */
   memory?: MemoryScope | null;
 }
 
 export const EMPLOYEE_ID = /^[a-z][a-z0-9-]{0,39}$/;
-/** 会改文件的工具：一个都没有的员工算“只读” */
-export const WRITE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'];
 const EFFORT_VALUES = ['low', 'medium', 'high', 'xhigh', 'max'];
-const MODE_VALUES: EmployeeMode[] = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
-
-export const isReadOnly = (p: Pick<EmployeeProfile, 'tools'>) => !!p.tools && !p.tools.some(t => WRITE_TOOLS.includes(t));
 
 function unquote(v: string): string {
   const s = v.trim();
@@ -72,7 +67,6 @@ export function parseProfile(id: string, text: string): EmployeeProfile {
   const str = (k: string) => (typeof fields[k] === 'string' ? unquote(fields[k] as string) : undefined);
   const list = (k: string) => (fields[k] !== undefined ? toList(fields[k]) : undefined);
   const effort = str('effort');
-  const mode = str('permissionMode');
   const memory = str('memory');
   const name = str('name') || id;
   return {
@@ -80,11 +74,8 @@ export function parseProfile(id: string, text: string): EmployeeProfile {
     displayName: str('displayName') || name,
     description: str('description') ?? '',
     prompt: body,
-    ...(list('tools') ? { tools: list('tools') } : {}),
-    ...(list('disallowedTools') ? { disallowedTools: list('disallowedTools') } : {}),
     ...(str('model') ? { model: str('model') } : {}),
     ...(effort && EFFORT_VALUES.includes(effort) ? { effort: effort as Effort } : {}),
-    ...(mode && (MODE_VALUES as string[]).includes(mode) ? { permissionMode: mode as EmployeeMode } : {}),
     ...(list('skills') ? { skills: list('skills') } : {}),
     memory: memory === 'none' || memory === 'false' ? null : memory === 'user' || memory === 'local' || memory === 'project' ? memory : memory === undefined ? null : 'project'
   };
@@ -97,29 +88,26 @@ function yamlValue(v: string): string {
 
 export function serializeProfile(p: EmployeeProfile): string {
   const lines = ['---', `name: ${p.id}`, `displayName: ${yamlValue(p.displayName)}`, `description: ${yamlValue(p.description.replace(/\s*\n\s*/g, ' '))}`];
-  if (p.tools) lines.push(`tools: ${p.tools.join(', ')}`);
-  if (p.disallowedTools?.length) lines.push(`disallowedTools: ${p.disallowedTools.join(', ')}`);
   if (p.model) lines.push(`model: ${p.model}`);
   if (p.effort) lines.push(`effort: ${p.effort}`);
-  if (p.permissionMode) lines.push(`permissionMode: ${p.permissionMode}`);
   if (p.skills?.length) lines.push(`skills: [${p.skills.join(', ')}]`);
   if (p.memory) lines.push(`memory: ${p.memory}`);
   lines.push('---', '', p.prompt.trim(), '');
   return lines.join('\n');
 }
 
-/** 给 SDK 的 AgentDefinition（options.agents 里用） */
+/**
+ * 给 SDK 的 AgentDefinition（options.agents 里用）。不写 tools（全部工具），权限由对话的模式决定（员工一律完全访问）。
+ * Skills 不放这里（这里是“预装”），由会话的 skills 选项按允许清单控制
+ */
 export function toAgentDefinition(p: EmployeeProfile) {
   return {
     description: p.description || p.displayName,
     prompt: p.prompt,
-    ...(p.tools ? { tools: p.tools } : {}),
-    // 员工不能直接问用户：信息不够时按最合理的假设去做，在汇报里说明
-    disallowedTools: [...new Set([...(p.disallowedTools ?? []), 'AskUserQuestion'])],
+    // 员工不直接问用户（做任务时没人回答）：信息不够时按最合理的假设去做，在汇报里说明
+    disallowedTools: ['AskUserQuestion'],
     ...(p.model ? { model: p.model } : {}),
     ...(p.effort ? { effort: p.effort } : {}),
-    ...(p.permissionMode ? { permissionMode: p.permissionMode } : {}),
-    ...(p.skills?.length ? { skills: p.skills } : {}),
     ...(p.memory ? { memory: p.memory } : {})
   };
 }

@@ -13,7 +13,7 @@ export const API_METHODS = [
   'setPrefs', 'setTheme', 'openExternal', 'listShells', 'termOpen', 'termRestart', 'termKill', 'termRekey',
   'gitStatus', 'gitDiff', 'gitStage', 'gitUnstage', 'gitRevert', 'gitCommit', 'gitInit', 'gitCheckBranch', 'gitWatch',
   'worktreeCheck', 'handoff', 'condaInfo', 'setProjectEnv',
-  'listEmployees', 'saveEmployee', 'deleteEmployee', 'listTasks', 'newEmployeeConversation'
+  'listEmployees', 'saveEmployee', 'deleteEmployee', 'listTasks', 'newEmployeeConversation', 'listSkills', 'stopTask'
 ] as const satisfies ReadonlyArray<InvokeMethod>;
 
 export type ApiMethod = (typeof API_METHODS)[number];

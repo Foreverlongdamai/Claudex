@@ -1,7 +1,7 @@
 // 界面状态（zustand）：项目、对话、时间线、弹窗、草稿。所有和主进程的交互都从这里走。
 import { create } from 'zustand';
 import type {
-  AppState, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, Verdict, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
+  AppState, CommandInfo, CommitRequest, CommitResult, CondaInfo, ConvEvent, EmployeeProfile, TeamTask, ConvStatus, ConversationMeta, Effort, EnvInfo, FileAttachment, GitEvent,
   GitScope, GitStatus, ImageAttachment, McpServerInfo, ModeId, ModelOption, PermissionDecision, Prefs, ProjectCheck, UsageInfo
 } from '@shared/types';
 import { convCwd } from '@shared/conv';
@@ -17,8 +17,6 @@ export interface ConvView {
   timeline: Timeline;
   usage?: UsageInfo;
   loaded: boolean;
-  /** 员工的对话：负责人审批过的操作（工具调用 ID → 结果） */
-  judged?: Record<string, Verdict>;
 }
 
 export type Dialog =
@@ -125,6 +123,13 @@ interface UiState {
   newEmployeeChat(projectPath: string, employeeId: string): Promise<void>;
   saveEmployee(projectPath: string, profile: EmployeeProfile, isNew: boolean): Promise<boolean>;
   deleteEmployee(projectPath: string, id: string): Promise<void>;
+  /** 主区域显示对话，还是任务看板 */
+  view: 'chat' | 'board';
+  setView(view: 'chat' | 'board'): void;
+  /** 项目路径 → 能用的 Skills（全局、项目、插件） */
+  skills: Record<string, CommandInfo[]>;
+  loadSkills(projectPath: string): Promise<void>;
+  stopTask(taskId: string): Promise<void>;
   /** 本机的 conda（没装就是 available: false） */
   conda: CondaInfo | null;
   loadConda(force?: boolean): Promise<void>;
@@ -134,6 +139,12 @@ interface UiState {
 }
 
 let toastSeq = 0;
+/**
+ * 切换对话的顺序号：打开对话要先读历史（异步），读完时如果用户已经去了别处（新对话、别的对话），就不再切回去。
+ * （端到端测试遇到过：一次慢的“打开”晚到，把用户已经切走的界面又拽回了别的对话）
+ */
+let navSeq = 0;
+const navLog = (what: string) => console.debug(`[claudex-nav] ${what} ← ${(new Error().stack ?? '').split('\n').slice(2, 7).map(l => l.trim()).join(' | ')}`);
 
 export const useStore = create<UiState>((set, get) => {
   /** 改某个对话的视图 */
@@ -179,6 +190,8 @@ export const useStore = create<UiState>((set, get) => {
     conda: null,
     team: {},
     tasks: {},
+    view: 'chat',
+    skills: {},
 
     async init() {
       const [app, env] = await Promise.all([api.getState(), api.getEnv()]);
@@ -245,9 +258,6 @@ export const useStore = create<UiState>((set, get) => {
         case 'notice':
           patchConv(ev.convId, c => ({ timeline: addNotice(c.timeline, ev.tone, ev.text, ev.detail) }));
           break;
-        case 'judged':
-          patchConv(ev.convId, c => ({ judged: { ...c.judged, [ev.toolUseId]: ev.verdict } }));
-          break;
         case 'project-env':
           set(s => (s.app ? { app: { ...s.app, projects: s.app.projects.map(p => (p.path === ev.projectPath ? { ...p, condaEnv: ev.env } : p)) } } : s));
           patchConv(ev.convId, c => ({
@@ -269,20 +279,25 @@ export const useStore = create<UiState>((set, get) => {
 
     startDraft(projectPath) {
       const project = projectPath ?? get().activeProject ?? get().app?.projects[0]?.path ?? null;
-      set({ activeId: null, activeProject: project, draft: project ? defaultDraft() : null });
+      navSeq++;
+      navLog(`draft ${project}`);
+      set({ activeId: null, activeProject: project, draft: project ? defaultDraft() : null, view: 'chat' });
       if (project) void get().refreshBranch(project);
     },
 
     async openConversation(id) {
+      const my = ++navSeq;
       const existing = get().convs[id];
       if (!existing?.loaded) {
         const o = await api.openConversation(id);
         let timeline = o.history.reduce<Timeline>((t, m) => applySdk(t, m, false), emptyTimeline());
         for (const r of o.pending) timeline = addApproval(timeline, r);
-        set(s => ({ convs: { ...s.convs, [id]: { meta: o.meta, status: o.status, timeline, usage: o.usage, loaded: true, judged: o.judged } } }));
+        set(s => ({ convs: { ...s.convs, [id]: { meta: o.meta, status: o.status, timeline, usage: o.usage, loaded: true } } }));
       }
+      if (my !== navSeq) { navLog(`open ${id} 晚到了，用户已经去了别处，不切过去`); return; }
+      navLog(`open ${id}`);
       const meta = get().convs[id].meta;
-      set({ activeId: id, activeProject: meta.projectPath, draft: null });
+      set({ activeId: id, activeProject: meta.projectPath, draft: null, view: 'chat' });
       void get().refreshBranch(convCwd(meta));
     },
 
@@ -363,6 +378,8 @@ export const useStore = create<UiState>((set, get) => {
         meta = { ...meta, mode: draft.mode, model: draft.model, effort: draft.effort };
         id = meta.id;
         upsertMetaInApp(meta);
+        navSeq++;
+        navLog(`new ${meta.id}`);
         set(st => ({ convs: { ...st.convs, [meta.id]: { meta, status: 'new', timeline: emptyTimeline(), loaded: true } }, activeId: meta.id, draft: null }));
       }
       const convId = id;
@@ -493,6 +510,29 @@ export const useStore = create<UiState>((set, get) => {
       }
       await get().refreshBranch(cwd);
       set(s => ({ gitTick: s.gitTick + 1 }));
+    },
+
+    setView(view) {
+      set({ view });
+    },
+
+    async loadSkills(projectPath) {
+      if (get().skills[projectPath]) return;
+      try {
+        const list = await api.listSkills(projectPath);
+        set(s => ({ skills: { ...s.skills, [projectPath]: list } }));
+      } catch {
+        set(s => ({ skills: { ...s.skills, [projectPath]: [] } }));
+      }
+    },
+
+    async stopTask(taskId) {
+      try {
+        await api.stopTask(taskId);
+        get().toast(`已停止任务 #${taskId}`);
+      } catch (e) {
+        get().toast(`停不下来：${errText(e)}`);
+      }
     },
 
     async loadTeam(projectPath) {

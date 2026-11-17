@@ -82,10 +82,9 @@ function systemAppend(meta: ConversationMeta): string | null {
   return [env, teamPart].filter(Boolean).join('\n\n') || null;
 }
 
-/** Claudex 提供给 Claude 的工具：主对话有团队工具和登记项目环境；员工没有 */
+/** Claudex 提供给 Claude 的工具：主对话有团队工具和登记项目环境；员工有同事、交接、自己的 Skills */
 function claudexMcp(meta: ConversationMeta): Record<string, McpServerConfig> | null {
-  if (meta.employee) return null;
-  const tools = [...team.bossTools(meta), ...(condaState?.available ? envTools(meta) : [])];
+  const tools = meta.employee ? team.employeeTools(meta) : [...team.bossTools(meta), ...(condaState?.available ? envTools(meta) : [])];
   return { claudex: createSdkMcpServer({ name: 'claudex', version: app.getVersion(), tools }) };
 }
 
@@ -227,7 +226,7 @@ function registerIpc(): void {
       emit({ kind: 'meta', convId: id, meta: next });
       return { ...r, branch: meta.worktree.branch, meta: next };
     },
-    openConversation: async id => ({ ...(await manager.open(id)), judged: team.judgedFor(id) }),
+    openConversation: id => manager.open(id),
     deleteConversation: async id => {
       const meta = store.conversation(id);
       if (meta?.worktree && inWorktree(meta)) {
@@ -316,7 +315,9 @@ function registerIpc(): void {
       const profile = team.findProfile(p, id);
       if (!profile) throw new Error(`找不到员工「${id}」`);
       return team.newEmployeeConversation(p, profile);
-    }
+    },
+    listSkills: p => manager.listSkills(p),
+    stopTask: id => team.stopTask(id)
   };
   for (const m of API_METHODS) {
     ipcMain.handle(channel(m), (_e, ...args: unknown[]) => (api[m] as (...a: unknown[]) => unknown)(...args));
@@ -341,8 +342,6 @@ if (!app.requestSingleInstanceLock()) {
       systemAppend,
       extraMcp: claudexMcp,
       agentOptions: meta => team.agentOptions(meta),
-      writeGuard: (meta, toolName, input) => team.writeGuard(meta, toolName, input),
-      approve: (meta, request) => team.approve(meta, request),
       blacklist: () => store.state.prefs.blacklist,
       disabledMcp,
       emit,
@@ -354,7 +353,11 @@ if (!app.requestSingleInstanceLock()) {
     });
     void refreshConda().catch(e => log(`查 conda 失败：${e instanceof Error ? e.message : e}`));
     review = new ReviewManager(app.getPath('userData'), ev => win?.webContents.send(GIT_CHANNEL, ev), log);
-    team = new TeamManager(app.getPath('userData'), { store, send: sendInternal, emit, env: p => envFor(p), isBusy: id => manager.isBusy(id), log });
+    team = new TeamManager(app.getPath('userData'), {
+      store, send: sendInternal, emit, env: p => envFor(p), isBusy: id => manager.isBusy(id), log,
+      listSkills: p => manager.listSkills(p), interrupt: id => manager.interrupt(id) ?? Promise.resolve(), markStale: ids => manager.markStale(ids),
+      confirm: (convId, toolName, input) => manager.confirm(convId, toolName, input)
+    });
     registerIpc();
     createWindow();
     log(`Claudex ${app.getVersion()} 启动；Git Bash：${gitBash().path ?? '没找到'}`);

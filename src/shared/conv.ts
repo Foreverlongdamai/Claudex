@@ -18,10 +18,12 @@ export function wrapTask(t: { id: string; from: string; title: string }, body: s
   return `<claudex-task id="${attr(t.id)}" from="${attr(t.from)}" title="${attr(t.title)}">\n${body.trim()}\n</claudex-task>`;
 }
 
-export function wrapResult(t: { id: string; employee: string; name: string; status: string; title: string }, body: string): string {
-  return `<claudex-task-result id="${attr(t.id)}" employee="${attr(t.employee)}" name="${attr(t.name)}" status="${attr(t.status)}" title="${attr(t.title)}">\n` +
-    '（这是员工交回的结果，不是用户发的消息。核对是否达到要求；需要返工就用 assign_task 带上 continue_task；然后向用户汇报。）\n\n' +
-    `${body.trim()}\n</claudex-task-result>`;
+export function wrapResult(t: { id: string; employee: string; name: string; status: string; title: string; chain?: string; toEmployee?: boolean }, body: string): string {
+  const hint = t.toEmployee
+    ? '（这是你请同事帮忙的那部分交回的结果，不是用户发的消息。接着做你的任务；等请同事帮忙的部分都回来了，再按格式汇报。）'
+    : '（这是员工交回的结果，不是用户发的消息。核对是否达到要求；需要返工就用 assign_task 带上 continue_task；然后向用户汇报。）';
+  return `<claudex-task-result id="${attr(t.id)}" employee="${attr(t.employee)}" name="${attr(t.name)}" status="${attr(t.status)}" title="${attr(t.title)}"${t.chain ? ` chain="${attr(t.chain)}"` : ''}>\n` +
+    `${hint}\n\n${body.trim()}\n</claudex-task-result>`;
 }
 
 export interface TaskMessage { kind: 'task' | 'result'; attrs: Record<string, string>; body: string }
@@ -33,7 +35,7 @@ export function parseTeamMessage(text: string): TaskMessage | null {
   const attrs: Record<string, string> = {};
   for (const a of m[2].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[a[1]] = a[2];
   let body = m[3];
-  if (m[1] === 'task-result') body = body.replace(/^（这是员工交回的结果[^\n]*\n\n?/, '');
+  if (m[1] === 'task-result') body = body.replace(/^（这是(员工交回的结果|你请同事帮忙的那部分)[^\n]*\n\n?/, '');
   return { kind: m[1] === 'task' ? 'task' : 'result', attrs, body };
 }
 

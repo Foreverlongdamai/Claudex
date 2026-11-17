@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Composer } from './components/Composer';
 import { Dialogs } from './components/Dialogs';
 import { ReviewPanel } from './components/ReviewPanel';
+import { TaskBoard } from './components/Board';
 import { Sidebar } from './components/Sidebar';
 import { TerminalPanel } from './components/TerminalPanel';
 import { Thread } from './components/Thread';
@@ -16,6 +17,7 @@ export function App() {
   const ready = useStore(s => s.ready);
   const hasProjects = useStore(s => (s.app?.projects.length ?? 0) > 0);
   const toasts = useStore(s => s.toasts);
+  const view = useStore(s => s.view);
 
   useEffect(() => {
     void useStore.getState().init();
@@ -93,6 +95,7 @@ export function App() {
       <Sidebar />
       <div className="mainwrap">
         <TopBar />
+        {view === 'board' && hasProjects ? <div className="content"><TaskBoard /></div> : (
         <div className="content">
         <main className="chat" {...(hasProjects ? dropHandlers : {})}>
           {hasProjects ? <><Thread /><Composer /><TerminalPanel /></> : <Welcome />}
@@ -108,6 +111,7 @@ export function App() {
         </main>
         {hasProjects && <ReviewPanel />}
         </div>
+        )}
       </div>
       <Dialogs />
       <div className="toasts">{toasts.map(t => <div key={t.id} className="toast">{t.text}</div>)}</div>

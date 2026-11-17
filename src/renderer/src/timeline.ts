@@ -24,7 +24,7 @@ export type Item =
   /** 团队：负责人派来的任务（员工的对话里） */
   | { kind: 'task'; id: string; taskId: string; from: string; title: string; text: string }
   /** 团队：员工交回的结果（主对话里） */
-  | { kind: 'task-result'; id: string; taskId: string; employee: string; name: string; status: string; title: string; text: string };
+  | { kind: 'task-result'; id: string; taskId: string; employee: string; name: string; status: string; title: string; text: string; chain?: string };
 
 export interface InitInfo {
   model: string;
@@ -96,7 +96,7 @@ function teamItem(text: string): Item | null {
   const a = m.attrs;
   return m.kind === 'task'
     ? { kind: 'task', id: uid('task'), taskId: a.id ?? '', from: a.from ?? '', title: a.title ?? '', text: m.body }
-    : { kind: 'task-result', id: uid('result'), taskId: a.id ?? '', employee: a.employee ?? '', name: a.name ?? '', status: a.status ?? 'done', title: a.title ?? '', text: m.body };
+    : { kind: 'task-result', id: uid('result'), taskId: a.id ?? '', employee: a.employee ?? '', name: a.name ?? '', status: a.status ?? 'done', title: a.title ?? '', text: m.body, ...(a.chain ? { chain: a.chain } : {}) };
 }
 
 /** Claudex 替用户发进对话的消息（派给员工的任务、员工交回的结果） */

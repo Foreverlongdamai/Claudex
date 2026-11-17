@@ -72,6 +72,8 @@ export function Sidebar() {
   const team = useStore(s => s.team);
   const activeId = useStore(s => s.activeId);
   const activeProject = useStore(s => s.activeProject);
+  const view = useStore(s => s.view);
+  const runningTasks = useStore(s => Object.values(s.tasks).filter(t => t.projectPath === s.activeProject && (t.status === 'running' || t.status === 'waiting')).length);
   const { startDraft, pickProject, removeProject, setTheme } = useStore.getState();
   if (!app) return null;
   const theme = app.prefs.theme;
@@ -84,6 +86,10 @@ export function Sidebar() {
       <div className="nav">
         <button className="nav-item" data-testid="new-conversation" onClick={() => startDraft()} disabled={!app.projects.length}>
           <Icon name="new" />新对话<kbd>Ctrl+N</kbd>
+        </button>
+        <button className={`nav-item${view === 'board' ? ' on' : ''}`} data-testid="board-button" disabled={!app.projects.length}
+          title="当前项目的员工和全部任务" onClick={() => useStore.getState().setView(view === 'board' ? 'chat' : 'board')}>
+          <Icon name="listcheck" />任务看板{runningTasks > 0 && <span className="nav-badge">{runningTasks}</span>}
         </button>
         <button className="nav-item" disabled title="M2 阶段"><Icon name="search" />搜索<span className="ms">M2</span></button>
         <button className="nav-item" disabled title="C4 阶段"><Icon name="clock" />自动化<span className="ms">C4</span></button>
