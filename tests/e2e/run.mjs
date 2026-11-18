@@ -1130,6 +1130,71 @@ await step('55 任务看板上停止一个正在做的任务，派活的主对�
   if (!card.includes('没做完') || !card.includes('用户停止了这个任务')) throw new Error('主对话没收到“没做完 / 用户停止了”：' + card);
 });
 
+
+// ---------- 团队：用平常的话说（不提工具名），负责人自己知道招人、派活 ----------
+/** 在 team-project 里开一个新的主对话说一句话，返回这个对话的 ID */
+async function bossSays(text) {
+  await win.locator('.proj-head', { hasText: 'team-project' }).click();
+  await sendMsg(text);
+  await waitFor(async () => (await activeConvId()) !== null, 10000, '新对话');
+  return activeConvId();
+}
+
+await step('76 平常的话招人：“我想再招一个员工……”，负责人自己弹出档案卡片', async () => {
+  const before = fs.readdirSync(path.join(teamProj, '.claude', 'agents')).length;
+  await bossSays('我想再招一个员工，专门做代码审查，名字叫老周。');
+  await win.waitForSelector('[data-testid=profile-approval]', { timeout: 240000 });
+  await shot('76-nl-hire-card');
+  await win.locator('[data-testid=profile-approve]').click();
+  await runApproving();
+  const files = fs.readdirSync(path.join(teamProj, '.claude', 'agents'));
+  if (files.length !== before + 1) throw new Error('档案没写：' + files.join(','));
+  if (!files.some(f => fs.readFileSync(path.join(teamProj, '.claude', 'agents', f), 'utf8').includes('displayName: 老周'))) throw new Error('名字不对');
+});
+
+await step('77 平常的话派活：“把……翻译成英文，写进文件”，负责人派给翻译员工', async () => {
+  const conv = await bossSays('把“明天见”翻译成英文，写进项目根目录的 see-you.txt。');
+  await runApproving(240000);
+  const tasks = (await teamTasks()).filter(t => t.fromConvId === conv);
+  console.log(`      负责人派了 ${tasks.length} 个活：${tasks.map(t => `${t.employeeName}「${t.title}」`).join('、') || '（没派，自己做了）'}`);
+  if (!tasks.length) throw new Error('有翻译员工，这个活应该派给他：' + await lastAssistant());
+  await waitResults(1, 300000);
+  await waitFor(() => fs.existsSync(path.join(teamProj, 'see-you.txt')), 60000, 'see-you.txt');
+  if (!/see you tomorrow/i.test(fs.readFileSync(path.join(teamProj, 'see-you.txt'), 'utf8'))) throw new Error('译文不对');
+});
+
+await step('78 平常的话说两件事：负责人拆开分给合适的员工', async () => {
+  const conv = await bossSays('帮我同时做两件事：一是统计一下项目根目录下有几个文件（不算文件夹）；二是把“谢谢你的帮助”翻译成英文。都做完一起告诉我。');
+  await runApproving(240000);
+  const tasks = (await teamTasks()).filter(t => t.fromConvId === conv);
+  console.log(`      负责人派了 ${tasks.length} 个活：${tasks.map(t => `${t.employeeName}「${t.title}」`).join('、') || '（没派，自己做了）'}`);
+  if (!tasks.length) throw new Error('能分工的活应该派出去：' + await lastAssistant());
+  await waitFor(async () => (await teamTasks()).filter(t => t.fromConvId === conv).every(t => t.status === 'done' || t.status === 'failed'), 300000, '派出去的活都交回');
+  await runApproving(240000);
+  if (!/thank/i.test(await win.locator('.thread').innerText())) throw new Error('最后的汇报里没有译文');
+});
+
+await step('79 小事自己做：“1+1 等于几”，不派活', async () => {
+  const conv = await bossSays('1+1 等于几？只回答数字。');
+  await runApproving();
+  const tasks = (await teamTasks()).filter(t => t.fromConvId === conv);
+  if (tasks.length) throw new Error('小事不该派活：' + JSON.stringify(tasks.map(t => t.title)));
+  // 只查“没派活”。回答本身偶尔答非所问（实测两次：把问题原样重复、答“正在使用 Claude Code。”，
+  // 是模型对这种一句话的问题偶尔走神，和团队无关：spikes/team/trivial-question.mjs 单独问 12 次都答 2）
+  console.log(`      负责人的回答：${(await lastAssistant()).slice(0, 40)}`);
+});
+
+await step('80 换个说法：“帮我创建一个员工……”，也能认出来是招人', async () => {
+  await bossSays('帮我创建一个员工，负责每周写项目周报。');
+  await win.waitForSelector('[data-testid=profile-approval]', { timeout: 240000 });
+  // 这次不录用：告诉负责人原因
+  await win.locator('[data-testid=profile-approval] button', { hasText: '不同意' }).click();
+  await win.locator('.deny-box input').fill('先不招了');
+  await win.locator('.deny-box button', { hasText: '不同意' }).click();
+  await runApproving();
+  if (fs.readdirSync(path.join(teamProj, '.claude', 'agents')).some(f => /周报|weekly|report/i.test(fs.readFileSync(path.join(teamProj, '.claude', 'agents', f), 'utf8')))) throw new Error('不同意了还是招了');
+});
+
 // ---------- 自动化（C4） ----------
 const autoState = () => win.evaluate(() => window.claudex.listAutomations());
 /** 等某次运行到某个状态 */
